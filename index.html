@@ -323,8 +323,8 @@
                 const encodedQuery = encodeURIComponent(query);
                 // 2. 組合出原本要去呼叫的 Overpass API 完整網址
                 const targetApiUrl = `https://lz4.overpass-api.de/api/interpreter?data=${encodedQuery}`;
-                // 3. 【核心修改】將目標網址再次編碼，並附加在 corsproxy 網址後面
-                const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetApiUrl)}`;
+                // 3. 【核心修改】使用 allorigins 代理伺服器
+                const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetApiUrl)}`;
 
                 // 向代理伺服器發送 GET 請求
                 const response = await fetch(proxyUrl, { method: 'GET' });
