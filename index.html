@@ -28,7 +28,6 @@
             height: 100%;
         }
 
-        /* 桌面版佈局：左側列表，右側地圖 */
         @media (min-width: 768px) {
             #app-container {
                 flex-direction: row;
@@ -219,10 +218,9 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <script>
-        // 預設中心點 (台北 101)
-        const DEFAULT_LAT = 25.033964;
-        const DEFAULT_LNG = 121.564468;
-        // 將範圍縮小為 500 公尺，大幅減少伺服器負載，避免超時
+        // 預設中心點 (台北車站，驗證多邊形地標抓取)
+        const DEFAULT_LAT = 25.0478;
+        const DEFAULT_LNG = 121.5170;
         const SEARCH_RADIUS = 500; 
 
         let map;          
@@ -243,15 +241,16 @@
         const restaurantListEl = document.getElementById('restaurant-list');
 
         function initMap() {
-            map = L.map('map').setView([DEFAULT_LAT, DEFAULT_LNG], 14);
+            map = L.map('map').setView([DEFAULT_LAT, DEFAULT_LNG], 15);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             }).addTo(map);
             markersGroup = L.layerGroup().addTo(map);
             
             locateBtn.addEventListener('click', locateUser);
-            // 初始載入時可選是否直接呼叫 API
-            // fetchRealData(DEFAULT_LAT, DEFAULT_LNG);
+            
+            // 頁面載入時直接掃描一次
+            fetchRealData(DEFAULT_LAT, DEFAULT_LNG);
         }
 
         function locateUser() {
@@ -307,46 +306,41 @@
             document.getElementById('results-count').innerHTML = '搜尋中...';
             updateMapCenterAndCircle(lat, lng);
 
-            // 改用 out center; 讓伺服器端幫我們簡化資料，減少傳輸量
             const query = `
                 [out:json][timeout:25];
                 (
-                  node["amenity"~"restaurant|cafe|fast_food|food_court"](around:${SEARCH_RADIUS},${lat},${lng});
-                  node["amenity"="parking"](around:${SEARCH_RADIUS},${lat},${lng});
-                  node["amenity"="fuel"](around:${SEARCH_RADIUS},${lat},${lng});
-                  node["shop"="convenience"](around:${SEARCH_RADIUS},${lat},${lng});
-                  node["amenity"="toilets"](around:${SEARCH_RADIUS},${lat},${lng});
+                  nwr["amenity"~"restaurant|cafe|fast_food|food_court"](around:${SEARCH_RADIUS},${lat},${lng});
+                  nwr["amenity"="parking"](around:${SEARCH_RADIUS},${lat},${lng});
+                  nwr["amenity"="fuel"](around:${SEARCH_RADIUS},${lat},${lng});
+                  nwr["shop"="convenience"](around:${SEARCH_RADIUS},${lat},${lng});
+                  nwr["amenity"="toilets"](around:${SEARCH_RADIUS},${lat},${lng});
                 );
                 out center;
             `;
 
             try {
-                // 1. 直接對官方或分流伺服器發送 POST 請求
                 const apiUrl = 'https://overpass-api.de/api/interpreter';
                 
-                // 2. 加入嚴謹的 Headers
+                // 【終極解法】拔掉所有複雜的 Headers 和 URLSearchParams
+                // 回歸最原始的表單提交格式
                 const response = await fetch(apiUrl, {
                     method: 'POST',
                     headers: {
-                        'Accept': 'application/json', // 告訴伺服器我們只要 JSON
-                        'Content-Type': 'application/x-www-form-urlencoded'
+                        'Content-type': 'application/x-www-form-urlencoded'
                     },
-                    body: `data=${encodeURIComponent(query)}`
+                    body: 'data=' + encodeURIComponent(query)
                 });
 
-                // 3. 先取得純文字回應，不要急著解析 JSON
                 const responseText = await response.text();
 
                 if (!response.ok) {
                     let errorMessage = `伺服器回應錯誤 (狀態碼: ${response.status})`;
-                    // 如果回傳的是 HTML 錯誤頁面，代表伺服器過載
                     if (responseText.includes('<html') || responseText.includes('<!DOCTYPE')) {
                         errorMessage = '伺服器目前忙碌中或過載，請稍後再試。';
                     }
                     throw new Error(errorMessage);
                 }
                 
-                // 4. 嘗試安全地解析 JSON
                 let data;
                 try {
                     data = JSON.parse(responseText);
@@ -354,7 +348,6 @@
                     throw new Error('無法解析伺服器回傳的資料 (可能不是有效的 JSON 格式)。');
                 }
                 
-                // 成功取得資料後解析並顯示
                 parseOverpassData(data.elements);
                 displayPlaces(lat, lng);
 
@@ -368,7 +361,7 @@
                         <i class="fa-solid fa-triangle-exclamation text-4xl mb-3"></i>
                         <p>抓取資料失敗。</p>
                         <p class="text-sm mt-2 text-gray-600">${error.message}</p>
-                        <button onclick="locateUser()" class="mt-4 px-4 py-2 bg-blue-100 text-blue-700 rounded-full text-sm hover:bg-blue-200 transition">
+                        <button onclick="fetchRealData(${lat}, ${lng})" class="mt-4 px-4 py-2 bg-blue-100 text-blue-700 rounded-full text-sm hover:bg-blue-200 transition">
                             <i class="fa-solid fa-rotate-right"></i> 重試一次
                         </button>
                     </div>
@@ -386,11 +379,12 @@
             if(!elements) return;
 
             elements.forEach(el => {
-                if(el.type !== 'node') return;
-                const tags = el.tags || {};
+                const tags = el.tags;
+                if (!tags) return; 
+
                 let name = tags['name:zh'] || tags.name || tags['name:en'];
-                const lat = el.lat || el.center?.lat; // out center 可能會把座標放在 center 裡面
-                const lng = el.lon || el.center?.lon;
+                const lat = el.lat || (el.center && el.center.lat);
+                const lng = el.lon || (el.center && el.center.lon);
 
                 if (!lat || !lng) return;
 
@@ -432,7 +426,7 @@
                     className: '', iconSize: [20, 20], iconAnchor: [10, 10]
                 });
                 userMarker = L.marker(userLatLng, {icon: userIcon, zIndexOffset: 1000}).addTo(map);
-                userMarker.bindPopup('<b>你在這裡</b>').openPopup();
+                userMarker.bindPopup('<b>雷達中心</b>').openPopup();
             }
 
             if (radiusCircle) {
