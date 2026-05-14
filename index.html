@@ -47,21 +47,21 @@
 
         @media (min-width: 768px) {
             #sidebar {
-                max-width: 380px; /* 稍微加寬以容納多欄位按鈕 */
+                max-width: 380px;
                 height: 100vh;
             }
         }
 
         #map-container {
             flex: 2;
-            height: 50vh; /* 手機版地圖高度 */
+            height: 50vh;
             width: 100%;
             position: relative;
         }
 
         @media (min-width: 768px) {
             #map-container {
-                height: 100vh; /* 桌面版地圖高度 */
+                height: 100vh;
             }
         }
 
@@ -71,7 +71,7 @@
         }
 
         .header {
-            background-color: #3b82f6; /* 改為生活通的藍色系 */
+            background-color: #3b82f6;
             color: white;
             padding: 1rem;
             text-align: center;
@@ -82,7 +82,7 @@
             overflow-y: auto;
             flex: 1;
             padding: 1rem;
-            position: relative; /* 為了放 loading 動畫 */
+            position: relative;
         }
 
         .restaurant-card {
@@ -101,19 +101,6 @@
             border-color: #3b82f6;
         }
 
-        .restaurant-card h3 {
-            margin: 0 0 0.5rem 0;
-            color: #1f2937;
-            font-size: 1.125rem;
-        }
-
-        .restaurant-card p {
-            margin: 0 0 0.25rem 0;
-            color: #6b7280;
-            font-size: 0.875rem;
-        }
-
-        /* 自定義 Leaflet Popup 樣式 */
         .custom-popup .leaflet-popup-content-wrapper {
             border-radius: 0.5rem;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
@@ -127,7 +114,6 @@
             font-size: 1.2rem;
         }
 
-        /* 控制面板懸浮在地圖上 */
         .controls-overlay {
             position: absolute;
             top: 20px;
@@ -159,7 +145,6 @@
             cursor: not-allowed;
         }
 
-        /* 載入中動畫 */
         .loader {
             border: 4px solid #f3f3f3;
             border-top: 4px solid #3b82f6;
@@ -179,7 +164,6 @@
 <body>
 
     <div id="app-container">
-        <!-- 左側面板：列表與控制 -->
         <div id="sidebar">
             <div class="header">
                 <h1 class="text-2xl font-bold"><i class="fa-solid fa-satellite-dish mr-2"></i>生活通雷達</h1>
@@ -208,7 +192,6 @@
                 尋找附近的地標與設施...
             </div>
 
-            <!-- 列表容器 -->
             <div id="restaurant-list" class="restaurant-list">
                 <div class="text-center text-gray-400 mt-10">
                     <i class="fa-solid fa-map-location-dot text-4xl mb-3"></i>
@@ -217,10 +200,8 @@
             </div>
         </div>
 
-        <!-- 右側面板：地圖 -->
         <div id="map-container">
             <div id="map"></div>
-            <!-- 地圖上的懸浮控制 -->
             <div class="controls-overlay hidden md:block">
                 <div class="flex flex-wrap items-center gap-2 text-sm text-gray-600 max-w-xs">
                     <span class="inline-flex items-center"><span class="inline-block w-3 h-3 rounded-full bg-blue-500 mr-1"></span> 你的位置</span>
@@ -238,28 +219,23 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <script>
-        // ==========================================
-        // 1. 初始化與全域變數設定
-        // ==========================================
-        
         // 預設中心點 (台北 101)
         const DEFAULT_LAT = 25.033964;
         const DEFAULT_LNG = 121.564468;
-        const SEARCH_RADIUS = 1000; // 1公里
+        const SEARCH_RADIUS = 1000; 
 
         let map;          
         let userMarker;   
         let radiusCircle; 
         let markersGroup; 
 
-        // 存放真實從 API 抓回來的資料
         let mockRestaurants = [];
         let mockParkings = []; 
         let mockGasStations = []; 
         let mockConvenienceStores = []; 
         let mockPublicToilets = []; 
         let currentFilter = 'all'; 
-        let isLoading = false; // 追蹤是否正在載入資料
+        let isLoading = false;
 
         const locateBtn = document.getElementById('locate-btn');
         const statusMsg = document.getElementById('status-message');
@@ -268,23 +244,16 @@
         function initMap() {
             map = L.map('map').setView([DEFAULT_LAT, DEFAULT_LNG], 13);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             }).addTo(map);
             markersGroup = L.layerGroup().addTo(map);
             
-            // 綁定定位按鈕事件
             locateBtn.addEventListener('click', locateUser);
-            
-            // 初始化時直接抓取預設地點的真實資料
             fetchRealData(DEFAULT_LAT, DEFAULT_LNG);
         }
 
-        // ==========================================
-        // 2. 定位功能
-        // ==========================================
-        
         function locateUser() {
-            if (isLoading) return; // 如果正在抓資料，防止重複點擊
+            if (isLoading) return; 
             
             statusMsg.textContent = '正在取得您的位置...';
             statusMsg.classList.remove('hidden', 'text-red-500');
@@ -300,10 +269,7 @@
                 (position) => {
                     const lat = position.coords.latitude;
                     const lng = position.coords.longitude;
-                    
                     statusMsg.textContent = '定位成功！準備掃描附近...';
-                    
-                    // 呼叫真實 API
                     fetchRealData(lat, lng);
                 },
                 (error) => {
@@ -323,32 +289,23 @@
             statusMsg.classList.remove('hidden');
         }
 
-        // ==========================================
-        // 3. ✨ 真實資料串接 (Overpass API) ✨
-        // ==========================================
-
         async function fetchRealData(lat, lng) {
             isLoading = true;
             locateBtn.disabled = true;
-            statusMsg.textContent = '📡 正在透過衛星連線真實地圖資料...';
+            statusMsg.textContent = '📡 正在透過代理連線地圖資料...';
             statusMsg.classList.remove('hidden');
             
-            // 顯示載入動畫
             restaurantListEl.innerHTML = `
                 <div class="text-center text-gray-500 mt-10">
                     <div class="loader"></div>
-                    <p class="mt-4">正在掃描方圓 1 公里的真實設施...</p>
-                    <p class="text-xs text-gray-400 mt-2">(可能需要幾秒鐘，請稍候)</p>
+                    <p class="mt-4">正在掃描方圓 1 公里的設施...</p>
+                    <p class="text-xs text-gray-400 mt-2">(使用代理伺服器連線中...)</p>
                 </div>
             `;
             markersGroup.clearLayers();
             document.getElementById('results-count').innerHTML = '搜尋中...';
-
-            // 更新地圖中心點和圈圈
             updateMapCenterAndCircle(lat, lng);
 
-            // 構建 Overpass QL 查詢語法
-            // 我們查詢指定半徑內的 amenity (餐廳, 停車場, 加油站, 廁所) 和 shop (便利商店)
             const query = `
                 [out:json][timeout:25];
                 (
@@ -362,24 +319,21 @@
             `;
 
             try {
-                // 【終極解法】改用 GET 請求，將查詢字串編碼到 URL 中
-                // 使用 encodeURIComponent 確保特殊字元不會破壞網址結構
+                // 1. 先將查詢字串編碼
                 const encodedQuery = encodeURIComponent(query);
-                // 換回主節點測試，有時分流節點也有問題
-                const apiUrl = `https://overpass-api.de/api/interpreter?data=${encodedQuery}`;
+                // 2. 組合出原本要去呼叫的 Overpass API 完整網址
+                const targetApiUrl = `https://lz4.overpass-api.de/api/interpreter?data=${encodedQuery}`;
+                // 3. 【核心修改】將目標網址再次編碼，並附加在 corsproxy 網址後面
+                const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetApiUrl)}`;
 
-                const response = await fetch(apiUrl, {
-                    method: 'GET' // 明確指定為 GET
-                });
+                // 向代理伺服器發送 GET 請求
+                const response = await fetch(proxyUrl, { method: 'GET' });
 
-                if (!response.ok) throw new Error(`伺服器連線異常狀態碼: ${response.status}`);
+                if (!response.ok) throw new Error(`代理伺服器回應異常狀態碼: ${response.status}`);
                 
                 const data = await response.json();
                 
-                // 解析資料
                 parseOverpassData(data.elements);
-                
-                // 渲染畫面
                 displayPlaces(lat, lng);
 
                 statusMsg.textContent = '資料更新成功！';
@@ -390,7 +344,7 @@
                 restaurantListEl.innerHTML = `
                     <div class="text-center text-red-500 mt-10">
                         <i class="fa-solid fa-triangle-exclamation text-4xl mb-3"></i>
-                        <p>抓取資料失敗。<br>這可能是網路連線問題，或是地圖伺服器忙碌中。</p>
+                        <p>抓取資料失敗。</p>
                         <p class="text-xs mt-2 text-gray-500">${error.message}</p>
                     </div>
                 `;
@@ -401,22 +355,17 @@
             }
         }
 
-        // 解析 OSM 回傳的 JSON 資料並分裝到對應的陣列中
         function parseOverpassData(elements) {
-            // 清空舊資料
             mockRestaurants = []; mockParkings = []; mockGasStations = []; mockConvenienceStores = []; mockPublicToilets = [];
 
             elements.forEach(el => {
                 if(el.type !== 'node') return;
                 const tags = el.tags || {};
-                
-                // 嘗試取得中文名稱，如果沒有則用英文，再沒有就顯示預設名稱
                 let name = tags['name:zh'] || tags.name || tags['name:en'];
                 const lat = el.lat;
                 const lng = el.lon;
 
                 if (tags.amenity && ['restaurant', 'cafe', 'fast_food', 'food_court'].includes(tags.amenity)) {
-                    // 美食餐廳
                     let typeZh = '美食';
                     if(tags.amenity === 'cafe') typeZh = '咖啡廳';
                     if(tags.amenity === 'fast_food') typeZh = '速食店';
@@ -424,32 +373,24 @@
                     mockRestaurants.push({ id: el.id, name, lat, lng, type: typeZh });
                 } 
                 else if (tags.amenity === 'parking') {
-                    // 停車場
                     name = name || '公眾停車場';
                     mockParkings.push({ id: el.id, name, lat, lng, price: (tags.fee === 'yes' ? '收費' : '免費/未知') });
                 } 
                 else if (tags.amenity === 'fuel') {
-                    // 加油站
                     name = name || '加油站';
                     mockGasStations.push({ id: el.id, name, lat, lng, brand: tags.brand || '一般加油站', hasSelfService: tags.self_service === 'yes' });
                 } 
                 else if (tags.shop === 'convenience') {
-                    // 超商
                     name = name || '便利商店';
                     mockConvenienceStores.push({ id: el.id, name, lat, lng, brand: tags.brand || '便利商店', hasToilet: tags.toilets === 'yes', hasATM: tags.atm === 'yes' });
                 } 
                 else if (tags.amenity === 'toilets') {
-                    // 廁所
                     name = name || '公共廁所';
                     mockPublicToilets.push({ id: el.id, name, lat, lng, isAccessible: tags.wheelchair === 'yes' });
                 }
             });
         }
 
-        // ==========================================
-        // 4. 地圖更新與畫面渲染
-        // ==========================================
-        
         function updateMapCenterAndCircle(lat, lng) {
             const userLatLng = [lat, lng];
             map.setView(userLatLng, 15);
@@ -481,7 +422,6 @@
             let foundCount = { food: 0, parking: 0, gas: 0, store: 0, toilet: 0 };
             const userLatLng = L.latLng(userLat, userLng);
 
-            // 圖標定義 
             const createIcon = (color, iconClass) => L.divIcon({
                 html: `<div style="color:${color}; font-size:24px; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);"><i class="${iconClass}"></i></div>`,
                 className: '', iconSize: [24, 24], iconAnchor: [12, 24], popupAnchor: [0, -24]
@@ -494,7 +434,6 @@
                 public_toilet: createIcon('#14b8a6', 'fa-solid fa-restroom')
             };
 
-            // 組合資料
             let combinedData = [];
             const addData = (arr, cat) => {
                 if (currentFilter === 'all' || currentFilter === cat) combinedData = combinedData.concat(arr.map(item => ({...item, category: cat})));
@@ -502,14 +441,11 @@
             addData(mockRestaurants, 'food'); addData(mockParkings, 'parking'); addData(mockGasStations, 'gas_station'); 
             addData(mockConvenienceStores, 'convenience_store'); addData(mockPublicToilets, 'public_toilet');
 
-            // 計算距離並排序 (由近到遠)
             combinedData.forEach(item => { item.distance = userLatLng.distanceTo(L.latLng(item.lat, item.lng)); });
             combinedData.sort((a, b) => a.distance - b.distance);
 
-            // 渲染
             combinedData.forEach((item) => {
                 if (item.distance <= SEARCH_RADIUS) {
-                    // 計數
                     if (item.category === 'food') foundCount.food++;
                     else if (item.category === 'parking') foundCount.parking++;
                     else if (item.category === 'gas_station') foundCount.gas++;
@@ -520,7 +456,6 @@
                     
                     let popupContent, cardContent;
 
-                    // 根據類別生成不同的卡片與彈窗內容
                     if (item.category === 'food') {
                         popupContent = `<div class="custom-popup"><h3 style="color:#ff5a5f;">${item.name}</h3><p>${item.type}</p></div>`;
                         cardContent = `<h3 class="text-lg font-bold text-gray-800"><i class="fa-solid fa-utensils text-red-400 mr-1"></i> ${item.name}</h3>
@@ -574,18 +509,15 @@
                     card.className = 'restaurant-card';
                     card.innerHTML = cardContent;
                     
-                    // 點擊卡片時，地圖移動到該標記並開啟彈窗
                     card.addEventListener('click', () => {
                         map.setView([item.lat, item.lng], 17);
                         marker.openPopup();
-                        // 手機版自動往下捲動到地圖區
                         if (window.innerWidth < 768) document.getElementById('map-container').scrollIntoView({ behavior: 'smooth' });
                     });
                     restaurantListEl.appendChild(card);
                 }
             });
 
-            // 更新數量文字提示
             const total = Object.values(foundCount).reduce((a, b) => a + b, 0);
             let countText = `總共找到 ${total} 個地點`;
             if (currentFilter === 'food') countText = `找到 <span class="text-red-500">${foundCount.food}</span> 間餐廳`;
@@ -596,7 +528,6 @@
             
             document.getElementById('results-count').innerHTML = countText;
 
-            // 找不到資料時的空狀態顯示
             if (total === 0) {
                 restaurantListEl.innerHTML = `
                     <div class="text-center text-gray-500 mt-10">
@@ -607,20 +538,16 @@
             }
         }
 
-        // 綁定篩選按鈕事件
         document.querySelectorAll('.filter-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
-                // 重置所有按鈕樣式
                 document.querySelectorAll('.filter-btn').forEach(b => {
                     b.classList.remove('bg-gray-800', 'text-white');
                     b.classList.add('bg-gray-200', 'text-gray-700');
                 });
-                // 點亮的按鈕樣式
                 const target = e.currentTarget;
                 target.classList.remove('bg-gray-200', 'text-gray-700');
                 target.classList.add('bg-gray-800', 'text-white');
                 
-                // 更新篩選狀態並重新渲染
                 currentFilter = target.dataset.type;
                 const center = map.getCenter();
                 const renderLat = userMarker ? userMarker.getLatLng().lat : center.lat;
@@ -629,7 +556,6 @@
             });
         });
 
-        // 確保網頁載入完成後再啟動地圖
         window.onload = initMap;
     </script>
 </body>
