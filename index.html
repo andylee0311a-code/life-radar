@@ -362,14 +362,14 @@
             `;
 
             try {
-                // 修正 CORS 問題：使用 URLSearchParams 讓瀏覽器自動處理，避免觸發嚴格的 Preflight (OPTIONS) 檢查
-                const params = new URLSearchParams();
-                params.append('data', query);
+                // 【終極解法】改用 GET 請求，將查詢字串編碼到 URL 中
+                // 使用 encodeURIComponent 確保特殊字元不會破壞網址結構
+                const encodedQuery = encodeURIComponent(query);
+                // 換回主節點測試，有時分流節點也有問題
+                const apiUrl = `https://overpass-api.de/api/interpreter?data=${encodedQuery}`;
 
-                // 這裡我們稍微換一個 Overpass API 的分流伺服器 (lz4 節點)，通常比主節點穩定且快速
-                const response = await fetch(`https://lz4.overpass-api.de/api/interpreter`, {
-                    method: 'POST',
-                    body: params
+                const response = await fetch(apiUrl, {
+                    method: 'GET' // 明確指定為 GET
                 });
 
                 if (!response.ok) throw new Error(`伺服器連線異常狀態碼: ${response.status}`);
