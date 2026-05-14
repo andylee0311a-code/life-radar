@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>生活通雷達 - 1公里內的生活便利地圖</title>
+    <title>生活通雷達 - 500公尺內的生活便利地圖</title>
     <!-- 引入 Tailwind CSS 進行快速排版 -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- 引入 Leaflet CSS -->
@@ -167,7 +167,7 @@
         <div id="sidebar">
             <div class="header">
                 <h1 class="text-2xl font-bold"><i class="fa-solid fa-satellite-dish mr-2"></i>生活通雷達</h1>
-                <p class="text-sm opacity-90 mt-1">搜尋方圓 1 公里內的真實設施</p>
+                <p class="text-sm opacity-90 mt-1">搜尋方圓 500 公尺內的真實設施</p>
             </div>
             
             <div class="p-4 border-b border-gray-200">
@@ -222,7 +222,8 @@
         // 預設中心點 (台北 101)
         const DEFAULT_LAT = 25.033964;
         const DEFAULT_LNG = 121.564468;
-        const SEARCH_RADIUS = 1000; 
+        // 將範圍縮小為 500 公尺，大幅減少伺服器負載，避免超時
+        const SEARCH_RADIUS = 500; 
 
         let map;          
         let userMarker;   
@@ -242,14 +243,15 @@
         const restaurantListEl = document.getElementById('restaurant-list');
 
         function initMap() {
-            map = L.map('map').setView([DEFAULT_LAT, DEFAULT_LNG], 13);
+            map = L.map('map').setView([DEFAULT_LAT, DEFAULT_LNG], 14);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             }).addTo(map);
             markersGroup = L.layerGroup().addTo(map);
             
             locateBtn.addEventListener('click', locateUser);
-            fetchRealData(DEFAULT_LAT, DEFAULT_LNG);
+            // 初始載入時可選是否直接呼叫 API
+            // fetchRealData(DEFAULT_LAT, DEFAULT_LNG);
         }
 
         function locateUser() {
@@ -292,20 +294,20 @@
         async function fetchRealData(lat, lng) {
             isLoading = true;
             locateBtn.disabled = true;
-            statusMsg.textContent = '📡 正在透過代理連線地圖資料...';
+            statusMsg.textContent = '📡 正在向地圖伺服器請求資料...';
             statusMsg.classList.remove('hidden');
             
             restaurantListEl.innerHTML = `
                 <div class="text-center text-gray-500 mt-10">
                     <div class="loader"></div>
-                    <p class="mt-4">正在掃描方圓 1 公里的設施...</p>
-                    <p class="text-xs text-gray-400 mt-2">(使用代理伺服器連線中...)</p>
+                    <p class="mt-4">正在掃描方圓 ${SEARCH_RADIUS} 公尺的設施...</p>
                 </div>
             `;
             markersGroup.clearLayers();
             document.getElementById('results-count').innerHTML = '搜尋中...';
             updateMapCenterAndCircle(lat, lng);
 
+            // 改用 out center; 讓伺服器端幫我們簡化資料，減少傳輸量
             const query = `
                 [out:json][timeout:25];
                 (
@@ -315,24 +317,44 @@
                   node["shop"="convenience"](around:${SEARCH_RADIUS},${lat},${lng});
                   node["amenity"="toilets"](around:${SEARCH_RADIUS},${lat},${lng});
                 );
-                out body;
+                out center;
             `;
 
             try {
-                // 1. 先將查詢字串編碼
-                const encodedQuery = encodeURIComponent(query);
-                // 2. 組合出原本要去呼叫的 Overpass API 完整網址
-                const targetApiUrl = `https://lz4.overpass-api.de/api/interpreter?data=${encodedQuery}`;
-                // 3. 【核心修改】使用 allorigins 代理伺服器
-                const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetApiUrl)}`;
-
-                // 向代理伺服器發送 GET 請求
-                const response = await fetch(proxyUrl, { method: 'GET' });
-
-                if (!response.ok) throw new Error(`代理伺服器回應異常狀態碼: ${response.status}`);
+                // 1. 直接對官方或分流伺服器發送 POST 請求
+                const apiUrl = 'https://overpass-api.de/api/interpreter';
                 
-                const data = await response.json();
+                // 2. 加入嚴謹的 Headers
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json', // 告訴伺服器我們只要 JSON
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: `data=${encodeURIComponent(query)}`
+                });
+
+                // 3. 先取得純文字回應，不要急著解析 JSON
+                const responseText = await response.text();
+
+                if (!response.ok) {
+                    let errorMessage = `伺服器回應錯誤 (狀態碼: ${response.status})`;
+                    // 如果回傳的是 HTML 錯誤頁面，代表伺服器過載
+                    if (responseText.includes('<html') || responseText.includes('<!DOCTYPE')) {
+                        errorMessage = '伺服器目前忙碌中或過載，請稍後再試。';
+                    }
+                    throw new Error(errorMessage);
+                }
                 
+                // 4. 嘗試安全地解析 JSON
+                let data;
+                try {
+                    data = JSON.parse(responseText);
+                } catch (e) {
+                    throw new Error('無法解析伺服器回傳的資料 (可能不是有效的 JSON 格式)。');
+                }
+                
+                // 成功取得資料後解析並顯示
                 parseOverpassData(data.elements);
                 displayPlaces(lat, lng);
 
@@ -345,7 +367,10 @@
                     <div class="text-center text-red-500 mt-10">
                         <i class="fa-solid fa-triangle-exclamation text-4xl mb-3"></i>
                         <p>抓取資料失敗。</p>
-                        <p class="text-xs mt-2 text-gray-500">${error.message}</p>
+                        <p class="text-sm mt-2 text-gray-600">${error.message}</p>
+                        <button onclick="locateUser()" class="mt-4 px-4 py-2 bg-blue-100 text-blue-700 rounded-full text-sm hover:bg-blue-200 transition">
+                            <i class="fa-solid fa-rotate-right"></i> 重試一次
+                        </button>
                     </div>
                 `;
                 document.getElementById('results-count').innerHTML = '抓取失敗';
@@ -358,12 +383,16 @@
         function parseOverpassData(elements) {
             mockRestaurants = []; mockParkings = []; mockGasStations = []; mockConvenienceStores = []; mockPublicToilets = [];
 
+            if(!elements) return;
+
             elements.forEach(el => {
                 if(el.type !== 'node') return;
                 const tags = el.tags || {};
                 let name = tags['name:zh'] || tags.name || tags['name:en'];
-                const lat = el.lat;
-                const lng = el.lon;
+                const lat = el.lat || el.center?.lat; // out center 可能會把座標放在 center 裡面
+                const lng = el.lon || el.center?.lon;
+
+                if (!lat || !lng) return;
 
                 if (tags.amenity && ['restaurant', 'cafe', 'fast_food', 'food_court'].includes(tags.amenity)) {
                     let typeZh = '美食';
@@ -408,6 +437,7 @@
 
             if (radiusCircle) {
                 radiusCircle.setLatLng(userLatLng);
+                radiusCircle.setRadius(SEARCH_RADIUS);
             } else {
                 radiusCircle = L.circle(userLatLng, {
                     color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 0.1, radius: SEARCH_RADIUS, weight: 2
@@ -532,7 +562,7 @@
                 restaurantListEl.innerHTML = `
                     <div class="text-center text-gray-500 mt-10">
                         <i class="fa-regular fa-face-frown text-4xl mb-3"></i>
-                        <p>方圓 1 公里內沒有找到資料。<br>OpenStreetMap 上可能還沒有人建立這裡的地標。</p>
+                        <p>方圓 ${SEARCH_RADIUS} 公尺內沒有找到資料。<br>OpenStreetMap 上可能還沒有人建立這裡的地標。</p>
                     </div>
                 `;
             }
