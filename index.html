@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>生活通雷達 - 1公里內的生活便利地圖</title>
+    <!-- 引入 Tailwind CSS 進行快速排版 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <!-- 引入 FontAwesome 圖示 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f3f4f6;
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        #app-container {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        /* 桌面版佈局：左側列表，右側地圖 */
+        @media (min-width: 768px) {
+            #app-container {
+                flex-direction: row;
+            }
+        }
+
+        #sidebar {
+            flex: 1;
+            max-width: 100%;
+            background: white;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+        }
+
+        @media (min-width: 768px) {
+            #sidebar {
+                max-width: 350px;
+                height: 100vh;
+            }
+        }
+
+        #map-container {
+            flex: 2;
+            height: 50vh; /* 手機版地圖高度 */
+            width: 100%;
+            position: relative;
+        }
+
+        @media (min-width: 768px) {
+            #map-container {
+                height: 100vh; /* 桌面版地圖高度 */
+            }
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        .header {
+            background-color: #ff5a5f;
+            color: white;
+            padding: 1rem;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .restaurant-list {
+            overflow-y: auto;
+            flex: 1;
+            padding: 1rem;
+        }
+
+        .restaurant-card {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 0.5rem;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            transition: transform 0.2s, box-shadow 0.2s;
+            cursor: pointer;
+        }
+
+        .restaurant-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            border-color: #ff5a5f;
+        }
+
+        .restaurant-card h3 {
+            margin: 0 0 0.5rem 0;
+            color: #1f2937;
+            font-size: 1.125rem;
+        }
+
+        .restaurant-card p {
+            margin: 0 0 0.25rem 0;
+            color: #6b7280;
+            font-size: 0.875rem;
+        }
+
+        .rating {
+            color: #fbbf24;
+            font-weight: bold;
+        }
+
+        /* 自定義 Leaflet Popup 樣式 */
+        .custom-popup .leaflet-popup-content-wrapper {
+            border-radius: 0.5rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        .custom-popup .leaflet-popup-content {
+            margin: 1rem;
+            line-height: 1.4;
+        }
+        .custom-popup h3 {
+            margin: 0 0 5px 0;
+            color: #ff5a5f;
+            font-size: 1.2rem;
+        }
+
+        /* 控制面板懸浮在地圖上 */
+        .controls-overlay {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+
+        button.btn-primary {
+            background-color: #ff5a5f;
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 0.25rem;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background-color 0.2s;
+            width: 100%;
+        }
+
+        button.btn-primary:hover {
+            background-color: #e0484d;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="app-container">
+        <!-- 左側面板：列表與控制 -->
+        <div id="sidebar">
+            <div class="header">
+                <h1 class="text-2xl font-bold"><i class="fa-solid fa-satellite-dish mr-2"></i>生活通雷達</h1>
+                <p class="text-sm opacity-90 mt-1">搜尋方圓 1 公里內的生活便利設施</p>
+            </div>
+            
+            <div class="p-4 border-b border-gray-200">
+                <button id="locate-btn" class="btn-primary flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-location-crosshairs"></i> 取得我的位置
+                </button>
+                <div id="status-message" class="text-sm text-center mt-2 text-gray-500 hidden">
+                    正在定位中...
+                </div>
+
+                <!-- 加入 flex-wrap 讓按鈕在手機上可以自動折行 -->
+                <div class="flex flex-wrap gap-2 mt-4">
+                    <button class="filter-btn flex-auto py-1 px-2 rounded-full text-sm font-semibold bg-gray-800 text-white transition-colors shadow-sm" data-type="all">全部</button>
+                    <button class="filter-btn flex-auto py-1 px-2 rounded-full text-sm font-semibold bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors shadow-sm whitespace-nowrap" data-type="food"><i class="fa-solid fa-utensils"></i> 美食</button>
+                    <button class="filter-btn flex-auto py-1 px-2 rounded-full text-sm font-semibold bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors shadow-sm whitespace-nowrap" data-type="parking"><i class="fa-solid fa-square-parking"></i> 停車場</button>
+                    <button class="filter-btn flex-auto py-1 px-2 rounded-full text-sm font-semibold bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors shadow-sm whitespace-nowrap" data-type="gas_station"><i class="fa-solid fa-gas-pump"></i> 加油站</button>
+                    <button class="filter-btn flex-auto py-1 px-2 rounded-full text-sm font-semibold bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors shadow-sm whitespace-nowrap" data-type="convenience_store"><i class="fa-solid fa-store"></i> 超商</button>
+                    <button class="filter-btn flex-auto py-1 px-2 rounded-full text-sm font-semibold bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors shadow-sm whitespace-nowrap" data-type="public_toilet"><i class="fa-solid fa-restroom"></i> 廁所</button>
+                </div>
+            </div>
+
+            <div id="results-count" class="px-4 py-2 bg-gray-50 text-sm font-semibold text-gray-600 border-b border-gray-200">
+                尋找附近的地標與設施...
+            </div>
+
+            <!-- 餐廳列表容器 -->
+            <div id="restaurant-list" class="restaurant-list">
+                <div class="text-center text-gray-400 mt-10">
+                    <i class="fa-solid fa-map-location-dot text-4xl mb-3"></i>
+                    <p>點擊上方按鈕開始搜尋</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右側面板：地圖 -->
+        <div id="map-container">
+            <div id="map"></div>
+            <!-- 地圖上的懸浮控制 (可選) -->
+            <div class="controls-overlay hidden md:block">
+                <div class="flex flex-wrap items-center gap-2 text-sm text-gray-600 max-w-xs">
+                    <span class="inline-flex items-center"><span class="inline-block w-3 h-3 rounded-full bg-blue-500 mr-1"></span> 你的位置</span>
+                    <span class="inline-flex items-center"><span class="inline-block w-3 h-3 rounded-full bg-red-500 mr-1"></span> 餐廳</span>
+                    <span class="inline-flex items-center"><span class="inline-block w-3 h-3 rounded-full bg-blue-400 mr-1"></span> 停車場</span>
+                    <span class="inline-flex items-center"><span class="inline-block w-3 h-3 rounded-full bg-orange-500 mr-1"></span> 加油站</span>
+                    <span class="inline-flex items-center"><span class="inline-block w-3 h-3 rounded-full bg-green-500 mr-1"></span> 超商</span>
+                    <span class="inline-flex items-center"><span class="inline-block w-3 h-3 rounded-full bg-teal-500 mr-1"></span> 廁所</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 引入 Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        // ==========================================
+        // 1. 初始化與全域變數設定
+        // ==========================================
+        
+        // 預設中心點 (台北 101 作為預設，防呆用)
+        const DEFAULT_LAT = 25.033964;
+        const DEFAULT_LNG = 121.564468;
+        const SEARCH_RADIUS = 1000; // 搜尋半徑：1000 公尺 (1 公里)
+
+        let map;          // Leaflet 地圖實例
+        let userMarker;   // 使用者位置標記
+        let radiusCircle; // 1 公里範圍圈
+        let markersGroup; // 用來管理所有餐廳標記的群組
+
+        // 模擬的餐廳資料庫 (實務上這會來自後端 API，如 Google Places API)
+        // 這裡我們產生一些相對於特定位置的隨機資料來模擬
+        let mockRestaurants = [];
+        let mockParkings = []; // 新增：停車場資料庫
+        let mockGasStations = []; // 新增：加油站資料庫
+        let mockConvenienceStores = []; // 新增：便利商店資料庫
+        let mockPublicToilets = []; // 新增：公共廁所資料庫
+        let currentFilter = 'all'; // 新增：目前的篩選狀態
+
+        // DOM 元素
+        const locateBtn = document.getElementById('locate-btn');
+        const statusMsg = document.getElementById('status-message');
+        const restaurantListEl = document.getElementById('restaurant-list');
+        const countNumberEl = document.getElementById('count-number');
+
+        // 初始化地圖
+        function initMap() {
+            // 建立地圖，設定預設中心與縮放級別
+            map = L.map('map').setView([DEFAULT_LAT, DEFAULT_LNG], 13);
+
+            // 加入圖資 (這裡使用 OpenStreetMap，免費且無需 API Key)
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(map);
+
+            // 建立一個圖層群組來放餐廳標記，方便一次清除
+            markersGroup = L.layerGroup().addTo(map);
+            
+            // 初始化時先產生一批預設資料並顯示 (為了展示效果)
+            generateMockData(DEFAULT_LAT, DEFAULT_LNG);
+            updateMapAndList(DEFAULT_LAT, DEFAULT_LNG);
+        }
+
+        // ==========================================
+        // 2. 定位功能
+        // ==========================================
+        
+        // 取得使用者真實位置
+        function locateUser() {
+            statusMsg.textContent = '正在取得您的位置...';
+            statusMsg.classList.remove('hidden');
+            statusMsg.classList.remove('text-red-500');
+            statusMsg.classList.add('text-gray-500');
+            locateBtn.disabled = true;
+
+            if (!navigator.geolocation) {
+                showError('您的瀏覽器不支援地理位置功能。');
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition(
+                // 成功取得位置
+                (position) => {
+                    const lat = position.coords.latitude;
+                    const lng = position.coords.longitude;
+                    
+                    statusMsg.textContent = '定位成功！正在搜尋附近設施...';
+                    
+                    // 根據新位置重新產生模擬資料並更新畫面
+                    generateMockData(lat, lng);
+                    updateMapAndList(lat, lng);
+                    
+                    setTimeout(() => {
+                        statusMsg.classList.add('hidden');
+                        locateBtn.disabled = false;
+                    }, 2000);
+                },
+                // 取得位置失敗
+                (error) => {
+                    let errorMsg = '無法取得位置。';
+                    switch(error.code) {
+                        case error.PERMISSION_DENIED:
+                            errorMsg = "您拒絕了位置請求。";
+                            break;
+                        case error.POSITION_UNAVAILABLE:
+                            errorMsg = "位置資訊不可用。";
+                            break;
+                        case error.TIMEOUT:
+                            errorMsg = "取得位置超時。";
+                            break;
+                    }
+                    showError(errorMsg);
+                    locateBtn.disabled = false;
+                },
+                // 定位選項
+                {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 0
+                }
+            );
+        }
+
+        function showError(msg) {
+            statusMsg.textContent = msg;
+            statusMsg.classList.remove('text-gray-500');
+            statusMsg.classList.add('text-red-500');
+            statusMsg.classList.remove('hidden');
+        }
+
+        // ==========================================
+        // 3. 地圖更新邏輯 (標記、範圍圈)
+        // ==========================================
+        
+        function updateMapAndList(lat, lng) {
+            const userLatLng = [lat, lng];
+
+            // 1. 更新地圖中心點，並放大顯示範圍
+            map.setView(userLatLng, 15);
+
+            // 2. 更新或建立使用者位置標記 (藍色點)
+            if (userMarker) {
+                userMarker.setLatLng(userLatLng);
+            } else {
+                // 自定義使用者圖標 (使用 FontAwesome 的圖示風格)
+                const userIcon = L.divIcon({
+                    html: '<div style="background-color:#3b82f6; width:20px; height:20px; border-radius:50%; border:3px solid white; box-shadow:0 0 5px rgba(0,0,0,0.5);"></div>',
+                    className: '',
+                    iconSize: [20, 20],
+                    iconAnchor: [10, 10]
+                });
+                userMarker = L.marker(userLatLng, {icon: userIcon, zIndexOffset: 1000}).addTo(map);
+                userMarker.bindPopup('<b>你在這裡</b>').openPopup();
+            }
+
+            // 3. 更新或建立 1 公里範圍圈 (紅色半透明)
+            if (radiusCircle) {
+                radiusCircle.setLatLng(userLatLng);
+            } else {
+                radiusCircle = L.circle(userLatLng, {
+                    color: '#ff5a5f',
+                    fillColor: '#ff5a5f',
+                    fillOpacity: 0.1,
+                    radius: SEARCH_RADIUS, // 半徑 1000 公尺
+                    weight: 2
+                }).addTo(map);
+            }
+
+            // 4. 過濾出 1 公里內的目標並更新畫面
+            displayPlaces(lat, lng);
+        }
+
+        // ==========================================
+        // 4. 資料處理與畫面渲染
+        // ==========================================
+
+        function displayPlaces(userLat, userLng) {
+            // 清除舊的標記和列表
+            markersGroup.clearLayers();
+            restaurantListEl.innerHTML = '';
+            
+            let foundFood = 0;
+            let foundParking = 0;
+            let foundGas = 0;
+            let foundStore = 0;
+            let foundToilet = 0;
+            const userLatLng = L.latLng(userLat, userLng);
+
+            // 自定義圖標
+            const restaurantIcon = L.divIcon({
+                html: '<div style="color:#ff5a5f; font-size:24px; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);"><i class="fa-solid fa-location-dot"></i></div>',
+                className: '',
+                iconSize: [24, 24],
+                iconAnchor: [12, 24],
+                popupAnchor: [0, -24]
+            });
+
+            const parkingIcon = L.divIcon({
+                html: '<div style="color:#3b82f6; font-size:22px; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);"><i class="fa-solid fa-square-parking"></i></div>',
+                className: '',
+                iconSize: [22, 22],
+                iconAnchor: [11, 22],
+                popupAnchor: [0, -22]
+            });
+
+            const storeIcon = L.divIcon({
+                html: '<div style="color:#22c55e; font-size:22px; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);"><i class="fa-solid fa-store"></i></div>',
+                className: '',
+                iconSize: [22, 22],
+                iconAnchor: [11, 22],
+                popupAnchor: [0, -22]
+            });
+
+            const toiletIcon = L.divIcon({
+                html: '<div style="color:#14b8a6; font-size:22px; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);"><i class="fa-solid fa-restroom"></i></div>',
+                className: '',
+                iconSize: [22, 22],
+                iconAnchor: [11, 22],
+                popupAnchor: [0, -22]
+            });
+
+            // 組合並過濾資料
+            let combinedData = [];
+            if (currentFilter === 'all' || currentFilter === 'food') {
+                combinedData = combinedData.concat(mockRestaurants.map(item => ({...item, category: 'food'})));
+            }
+            if (currentFilter === 'all' || currentFilter === 'parking') {
+                combinedData = combinedData.concat(mockParkings.map(item => ({...item, category: 'parking'})));
+            }
+            if (currentFilter === 'all' || currentFilter === 'gas_station') {
+                combinedData = combinedData.concat(mockGasStations.map(item => ({...item, category: 'gas_station'})));
+            }
+            if (currentFilter === 'all' || currentFilter === 'convenience_store') {
+                combinedData = combinedData.concat(mockConvenienceStores.map(item => ({...item, category: 'convenience_store'})));
+            }
+            if (currentFilter === 'all' || currentFilter === 'public_toilet') {
+                combinedData = combinedData.concat(mockPublicToilets.map(item => ({...item, category: 'public_toilet'})));
+            }
+
+            // 計算距離並排序 (距離近的排前面，提升 UX)
+            combinedData.forEach(item => {
+                item.distance = userLatLng.distanceTo(L.latLng(item.lat, item.lng));
+            });
+            combinedData.sort((a, b) => a.distance - b.distance);
+
+            // 檢查每一筆資料是否在範圍內並渲染
+            combinedData.forEach((item) => {
+                if (item.distance <= SEARCH_RADIUS) {
+                    if (item.category === 'food') foundFood++;
+                    if (item.category === 'parking') foundParking++;
+                    if (item.category === 'gas_station') foundGas++;
+                    if (item.category === 'convenience_store') foundStore++;
+                    if (item.category === 'public_toilet') foundToilet++;
+                    
+                    // --- 在地圖上加入標記 ---
+                    let icon = restaurantIcon;
+                    if (item.category === 'parking') icon = parkingIcon;
+                    if (item.category === 'gas_station') icon = gasIcon;
+                    if (item.category === 'convenience_store') icon = storeIcon;
+                    if (item.category === 'public_toilet') icon = toiletIcon;
+                    
+                    // 將停車場圖層稍微放下面一點，避免遮擋餐廳
+                    let zIndex = 100;
+                    if (item.category === 'parking') zIndex = 0;
+                    if (item.category === 'gas_station') zIndex = 50;
+                    if (item.category === 'convenience_store') zIndex = 75;
+                    if (item.category === 'public_toilet') zIndex = 80;
+
+                    const marker = L.marker([item.lat, item.lng], {icon: icon, zIndexOffset: zIndex}).addTo(markersGroup);
+                    
+                    let popupContent, cardContent;
+
+                    if (item.category === 'food') {
+                        popupContent = `
+                            <div class="custom-popup">
+                                <h3>${item.name}</h3>
+                                <p><i class="fa-solid fa-star text-yellow-400"></i> ${item.rating} (${item.reviews} 則評論)</p>
+                                <p><i class="fa-solid fa-utensils text-gray-400"></i> ${item.type}</p>
+                                <p><i class="fa-solid fa-person-walking text-gray-400"></i> 距離約 ${Math.round(item.distance)} 公尺</p>
+                            </div>
+                        `;
+                    } else if (item.category === 'parking') {
+                        popupContent = `
+                            <div class="custom-popup">
+                                <h3 style="color:#3b82f6;">${item.name}</h3>
+                                <p><i class="fa-solid fa-circle-dollar-to-slot text-blue-400"></i> 每小時 ${item.price} 元</p>
+                                <p><i class="fa-solid fa-car text-gray-400"></i> 剩餘車位: <span class="${item.availableSpots > 0 ? 'text-green-500 font-bold' : 'text-red-500 font-bold'}">${item.availableSpots}</span></p>
+                                <p><i class="fa-solid fa-person-walking text-gray-400"></i> 距離約 ${Math.round(item.distance)} 公尺</p>
+                            </div>
+                        `;
+                        cardContent = `
+                            <div class="flex justify-between items-start">
+                                <h3 class="text-lg font-bold text-gray-800"><i class="fa-solid fa-square-parking text-blue-500 mr-1"></i> ${item.name}</h3>
+                                <span class="text-blue-600 font-bold border border-blue-200 px-2 py-1 rounded bg-blue-50 text-sm">$${item.price}/hr</span>
+                            </div>
+                            <p class="text-sm text-gray-500 mb-1">一般平面/立體停車場</p>
+                            <div class="flex justify-between items-center mt-2 text-sm text-gray-600">
+                                <span><i class="fa-solid fa-person-walking"></i> ${Math.round(item.distance)} m</span>
+                                <span class="text-xs ${item.availableSpots > 0 ? 'text-green-600' : 'text-red-500'} font-semibold">剩餘 ${item.availableSpots} 車位</span>
+                            </div>
+                        `;
+                    } else if (item.category === 'gas_station') {
+                        popupContent = `
+                            <div class="custom-popup">
+                                <h3 style="color:#f97316;">${item.name}</h3>
+                                <p><i class="fa-solid fa-gas-pump text-orange-400"></i> ${item.brand}</p>
+                                <p><i class="fa-solid fa-circle-check text-green-500"></i> ${item.hasSelfService ? '提供自助加油' : '僅人工加油'}</p>
+                                <p><i class="fa-solid fa-person-walking text-gray-400"></i> 距離約 ${Math.round(item.distance)} 公尺</p>
+                            </div>
+                        `;
+                        cardContent = `
+                            <div class="flex justify-between items-start">
+                                <h3 class="text-lg font-bold text-gray-800"><i class="fa-solid fa-gas-pump text-orange-500 mr-1"></i> ${item.name}</h3>
+                                <span class="text-orange-600 font-bold border border-orange-200 px-2 py-1 rounded bg-orange-50 text-sm">${item.brand}</span>
+                            </div>
+                            <p class="text-sm text-gray-500 mb-1">加油站 ${item.hasSelfService ? '· 附設自助區' : ''}</p>
+                            <div class="flex justify-between items-center mt-2 text-sm text-gray-600">
+                                <span><i class="fa-solid fa-person-walking"></i> ${Math.round(item.distance)} m</span>
+                                <span class="text-xs text-gray-400">${item.hasSelfService ? '自助降價' : '人工服務'}</span>
+                            </div>
+                        `;
+                    } else if (item.category === 'convenience_store') {
+                        popupContent = `
+                            <div class="custom-popup">
+                                <h3 style="color:#22c55e;">${item.name}</h3>
+                                <div class="flex gap-2 mt-2 mb-2">
+                                    <span class="text-xs px-2 py-1 rounded ${item.hasToilet ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}"><i class="fa-solid fa-restroom"></i> 廁所</span>
+                                    <span class="text-xs px-2 py-1 rounded ${item.hasATM ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-400'}"><i class="fa-solid fa-money-bill-wave"></i> ATM</span>
+                                </div>
+                                <p><i class="fa-solid fa-person-walking text-gray-400"></i> 距離約 ${Math.round(item.distance)} 公尺</p>
+                            </div>
+                        `;
+                        cardContent = `
+                            <div class="flex justify-between items-start">
+                                <h3 class="text-lg font-bold text-gray-800"><i class="fa-solid fa-store text-green-500 mr-1"></i> ${item.name}</h3>
+                            </div>
+                            <div class="flex gap-2 mt-2">
+                                <span class="text-xs font-semibold px-2 py-1 rounded ${item.hasToilet ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}">
+                                    <i class="fa-solid ${item.hasToilet ? 'fa-check' : 'fa-xmark'}"></i> 廁所
+                                </span>
+                                <span class="text-xs font-semibold px-2 py-1 rounded ${item.hasATM ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-400'}">
+                                    <i class="fa-solid ${item.hasATM ? 'fa-check' : 'fa-xmark'}"></i> ATM
+                                </span>
+                            </div>
+                            <div class="flex justify-between items-center mt-3 text-sm text-gray-600">
+                                <span><i class="fa-solid fa-person-walking"></i> ${Math.round(item.distance)} m</span>
+                                <span class="text-xs text-green-600 font-semibold">24小時營業</span>
+                            </div>
+                        `;
+                    } else if (item.category === 'public_toilet') {
+                        popupContent = `
+                            <div class="custom-popup">
+                                <h3 style="color:#14b8a6;">${item.name}</h3>
+                                <p><i class="fa-solid fa-wheelchair text-teal-500"></i> ${item.isAccessible ? '有無障礙廁所' : '一般廁所'}</p>
+                                <p><i class="fa-solid fa-person-walking text-gray-400"></i> 距離約 ${Math.round(item.distance)} 公尺</p>
+                            </div>
+                        `;
+                        cardContent = `
+                            <div class="flex justify-between items-start">
+                                <h3 class="text-lg font-bold text-gray-800"><i class="fa-solid fa-restroom text-teal-500 mr-1"></i> ${item.name}</h3>
+                            </div>
+                            <p class="text-sm text-gray-500 mb-1 mt-1">${item.isAccessible ? '<i class="fa-solid fa-wheelchair text-teal-400"></i> 設有無障礙設施' : '一般公共廁所'}</p>
+                            <div class="flex justify-between items-center mt-2 text-sm text-gray-600">
+                                <span><i class="fa-solid fa-person-walking"></i> ${Math.round(item.distance)} m</span>
+                                <span class="text-xs text-teal-600">免費使用</span>
+                            </div>
+                        `;
+                    }
+
+                    marker.bindPopup(popupContent);
+
+                    // --- 在側邊欄加入列表項目 ---
+                    const card = document.createElement('div');
+                    card.className = 'restaurant-card'; // 共用卡片樣式
+                    card.innerHTML = cardContent;
+                    
+                    // 點擊列表項目，地圖移動到該點並開啟 Popup
+                    card.addEventListener('click', () => {
+                        map.setView([item.lat, item.lng], 17);
+                        marker.openPopup();
+                        if (window.innerWidth < 768) {
+                           document.getElementById('map-container').scrollIntoView({ behavior: 'smooth' });
+                        }
+                    });
+
+                    restaurantListEl.appendChild(card);
+                }
+            });
+
+            // 更新找到的數量文字
+            let countText = '';
+            if (currentFilter === 'all') {
+                countText = `總共找到 ${foundFood + foundParking + foundGas + foundStore + foundToilet} 個地點`;
+            }
+            else if (currentFilter === 'food') countText = `找到 <span class="text-red-500">${foundFood}</span> 間餐廳`;
+            else if (currentFilter === 'parking') countText = `找到 <span class="text-blue-500">${foundParking}</span> 個停車場`;
+            else if (currentFilter === 'gas_station') countText = `找到 <span class="text-orange-500">${foundGas}</span> 個加油站`;
+            else if (currentFilter === 'convenience_store') countText = `找到 <span class="text-green-500">${foundStore}</span> 間便利商店`;
+            else if (currentFilter === 'public_toilet') countText = `找到 <span class="text-teal-500">${foundToilet}</span> 間公共廁所`;
+            
+            document.getElementById('results-count').innerHTML = countText;
+
+            // 如果沒找到
+            if (foundFood + foundParking + foundGas + foundStore + foundToilet === 0) {
+                restaurantListEl.innerHTML = `
+                    <div class="text-center text-gray-500 mt-10">
+                        <i class="fa-regular fa-face-frown text-4xl mb-3"></i>
+                        <p>方圓 1 公里內沒有找到符合的結果。<br>試著移動地圖或重新定位。</p>
+                    </div>
+                `;
+            }
+        }
+
+        // ==========================================
+        // 5. 模擬資料產生器 (實務上不需要這個，會呼叫後端)
+        // ==========================================
+        
+        function generateMockData(centerLat, centerLng) {
+            mockRestaurants = [];
+            mockParkings = []; // 新增
+            mockGasStations = []; // 新增加油站
+            mockConvenienceStores = []; // 新增便利商店
+            mockPublicToilets = []; // 新增公共廁所
+
+            const types = ['日式料理', '義大利麵', '早午餐', '台灣小吃', '咖啡廳', '火鍋', '燒烤', '甜點'];
+            const names = ['美味', '幸福', '極品', '老張', '巷口', '星光', '田園', '轉角'];
+            const suffix = ['食堂', '餐廳', '小吃店', 'Cafe', '餐酒館', '麵店', '屋'];
+
+            // 產生 50 筆在中心點附近 2 公里內的隨機餐廳
+            for (let i = 0; i < 50; i++) {
+                // 隨機經緯度偏移 (大約 ±2km 範圍內)
+                const latOffset = (Math.random() - 0.5) * 0.03; 
+                const lngOffset = (Math.random() - 0.5) * 0.03;
+
+                const type = types[Math.floor(Math.random() * types.length)];
+                const name = names[Math.floor(Math.random() * names.length)] + suffix[Math.floor(Math.random() * suffix.length)];
+                
+                mockRestaurants.push({
+                    id: i,
+                    name: `${name} ${i+1}號店`,
+                    lat: centerLat + latOffset,
+                    lng: centerLng + lngOffset,
+                    type: type,
+                    rating: (Math.random() * 2 + 3).toFixed(1), // 3.0 ~ 5.0
+                    reviews: Math.floor(Math.random() * 500) + 10
+                });
+            }
+
+            // 產生 20 筆模擬停車場資料
+            const parkingBrands = ['城市車停', '嘟嘟房', '聯通', 'Times', '應安', '台灣聯通'];
+            for (let i = 0; i < 20; i++) {
+                const latOffset = (Math.random() - 0.5) * 0.03; 
+                const lngOffset = (Math.random() - 0.5) * 0.03;
+                const brand = parkingBrands[Math.floor(Math.random() * parkingBrands.length)];
+                
+                mockParkings.push({
+                    id: 'p' + i,
+                    name: `${brand} 模擬站 ${i+1}`,
+                    lat: centerLat + latOffset,
+                    lng: centerLng + lngOffset,
+                    type: 'parking',
+                    price: Math.floor(Math.random() * 40) + 20, // 20~60元/小時
+                    availableSpots: Math.floor(Math.random() * 50) // 0~49 個空位
+                });
+            }
+
+            // 產生 10 筆模擬加油站資料
+            const gasBrands = ['台灣中油', '台塑石油', '全國加油站', '速邁樂', '山隆加油站'];
+            for (let i = 0; i < 10; i++) {
+                const latOffset = (Math.random() - 0.5) * 0.03; 
+                const lngOffset = (Math.random() - 0.5) * 0.03;
+                const brand = gasBrands[Math.floor(Math.random() * gasBrands.length)];
+                
+                mockGasStations.push({
+                    id: 'g' + i,
+                    name: `${brand} 模擬站`,
+                    brand: brand,
+                    lat: centerLat + latOffset,
+                    lng: centerLng + lngOffset,
+                    type: 'gas_station',
+                    hasSelfService: Math.random() > 0.4 // 60% 機率有自助加油
+                });
+            }
+
+            // 產生 15 筆模擬便利商店資料
+            const storeBrands = ['7-ELEVEN', '全家便利商店', '萊爾富', 'OK超商'];
+            for (let i = 0; i < 15; i++) {
+                const latOffset = (Math.random() - 0.5) * 0.03; 
+                const lngOffset = (Math.random() - 0.5) * 0.03;
+                const brand = storeBrands[Math.floor(Math.random() * storeBrands.length)];
+                
+                mockConvenienceStores.push({
+                    id: 'c' + i,
+                    name: `${brand} 模擬門市 ${i+1}`,
+                    brand: brand,
+                    lat: centerLat + latOffset,
+                    lng: centerLng + lngOffset,
+                    type: 'convenience_store',
+                    hasToilet: Math.random() > 0.3, // 70% 機率有廁所
+                    hasATM: Math.random() > 0.1     // 90% 機率有提款機
+                });
+            }
+
+            // 產生 8 筆模擬公共廁所資料
+            for (let i = 0; i < 8; i++) {
+                const latOffset = (Math.random() - 0.5) * 0.03; 
+                const lngOffset = (Math.random() - 0.5) * 0.03;
+                
+                mockPublicToilets.push({
+                    id: 't' + i,
+                    name: `公有廁所 / 設施附屬廁所 ${i+1}`,
+                    lat: centerLat + latOffset,
+                    lng: centerLng + lngOffset,
+                    type: 'public_toilet',
+                    isAccessible: Math.random() > 0.5 // 50% 機率有無障礙設施
+                });
+            }
+        }
+
+        // ==========================================
+        // 6. 綁定事件與啟動
+        // ==========================================
+
+        // 綁定定位按鈕事件
+        locateBtn.addEventListener('click', locateUser);
+
+        // 綁定篩選按鈕事件
+        document.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                // 更新按鈕樣式 (切換 Active 狀態)
+                document.querySelectorAll('.filter-btn').forEach(b => {
+                    b.classList.remove('bg-gray-800', 'text-white');
+                    b.classList.add('bg-gray-200', 'text-gray-700');
+                });
+                const target = e.currentTarget;
+                target.classList.remove('bg-gray-200', 'text-gray-700');
+                target.classList.add('bg-gray-800', 'text-white');
+
+                // 更新狀態變數
+                currentFilter = target.dataset.type;
+                
+                // 使用目前中心點重新渲染列表與地圖標記
+                const center = map.getCenter();
+                // 優先使用真實定位點，如果沒有則使用預設地圖目前中心
+                const renderLat = userMarker ? userMarker.getLatLng().lat : center.lat;
+                const renderLng = userMarker ? userMarker.getLatLng().lng : center.lng;
+                
+                displayPlaces(renderLat, renderLng);
+            });
+        });
+
+        // 頁面載入完成後初始化地圖
+        window.onload = initMap;
+
+    </script>
+</body>
+</html>
