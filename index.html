@@ -362,17 +362,17 @@
             `;
 
             try {
-                // 這裡加入了 headers 來修正 CORS 問題，確保伺服器理解我們傳遞的格式
-                const response = await fetch(`https://overpass-api.de/api/interpreter`, {
+                // 修正 CORS 問題：使用 URLSearchParams 讓瀏覽器自動處理，避免觸發嚴格的 Preflight (OPTIONS) 檢查
+                const params = new URLSearchParams();
+                params.append('data', query);
+
+                // 這裡我們稍微換一個 Overpass API 的分流伺服器 (lz4 節點)，通常比主節點穩定且快速
+                const response = await fetch(`https://lz4.overpass-api.de/api/interpreter`, {
                     method: 'POST',
-                    headers: {
-                        'Accept': 'application/json',
-                        'Content-Type': 'application/x-www-form-urlencoded'
-                    },
-                    body: 'data=' + encodeURIComponent(query)
+                    body: params
                 });
 
-                if (!response.ok) throw new Error('網路連線錯誤或 CORS 阻擋');
+                if (!response.ok) throw new Error(`伺服器連線異常狀態碼: ${response.status}`);
                 
                 const data = await response.json();
                 
