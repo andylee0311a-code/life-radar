@@ -220,10 +220,8 @@
 
     <script>
         // 預設中心點 (台北 101)
-        //const DEFAULT_LAT = 25.033964;
-        //const DEFAULT_LNG = 121.564468;
-        const DEFAULT_LAT = 25.0478;
-const DEFAULT_LNG = 121.5170;
+        const DEFAULT_LAT = 25.033964;
+        const DEFAULT_LNG = 121.564468;
         // 將範圍縮小為 500 公尺，大幅減少伺服器負載，避免超時
         const SEARCH_RADIUS = 500; 
 
@@ -251,7 +249,7 @@ const DEFAULT_LNG = 121.5170;
             }).addTo(map);
             markersGroup = L.layerGroup().addTo(map);
             
-            //locateBtn.addEventListener('click', locateUser);
+            locateBtn.addEventListener('click', locateUser);
             // 初始載入時可選是否直接呼叫 API
             // fetchRealData(DEFAULT_LAT, DEFAULT_LNG);
         }
