@@ -323,7 +323,7 @@
             restaurantListEl.innerHTML = `
                 <div class="text-center text-gray-500 mt-10">
                     <div class="loader"></div>
-                    <p class="mt-4 text-sm font-semibold text-blue-600">正在掃描方圓 ${SEARCH_RADIUS} 公尺的設施...</p>
+                    <p id="loading-text" class="mt-4 text-sm font-semibold text-blue-600">正在掃描方圓 ${SEARCH_RADIUS} 公尺的設施...</p>
                 </div>
             `;
             markersGroup.clearLayers();
@@ -346,47 +346,66 @@
             const endpoints = [
                 'https://overpass-api.de/api/interpreter',         
                 'https://lz4.overpass-api.de/api/interpreter',     
+                'https://z.overpass-api.de/api/interpreter',       // 新增德國 z 節點
                 'https://overpass.kumi.systems/api/interpreter',
-                'https://maps.mail.ru/osm/tools/overpass/api/interpreter' 
+                'https://overpass.openstreetmap.fr/api/interpreter' // 新增法國節點 (穩定度極高)
             ];
 
             let responseText = null;
+            const maxRetries = 3; // 設定最高重試次數為 3 次
 
             try {
-                // 【終極升級】：並行競速機制 (Promise.any) + 10秒強制超時切斷
-                const fetchPromises = endpoints.map(async (apiUrl) => {
-                    const controller = new AbortController();
-                    // 設定 10 秒超時，時間一到直接切斷該連線，絕不死等
-                    const timeoutId = setTimeout(() => controller.abort(), 10000); 
+                // 【終極升級】：自動重試迴圈 (Exponential Backoff)
+                for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                    if (attempt > 1) {
+                        const loadingText = document.getElementById('loading-text');
+                        if(loadingText) loadingText.textContent = `伺服器忙碌中，進行第 ${attempt} 次自動重試...`;
+                        console.log(`啟動第 ${attempt} 次重試機制...`);
+                    }
+
+                    const fetchPromises = endpoints.map(async (apiUrl) => {
+                        const controller = new AbortController();
+                        // 稍微放寬到 12 秒，給較遠的國外伺服器一點彈性
+                        const timeoutId = setTimeout(() => controller.abort(), 12000); 
+
+                        try {
+                            const response = await fetch(apiUrl, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                                body: 'data=' + encodeURIComponent(query),
+                                signal: controller.signal 
+                            });
+
+                            clearTimeout(timeoutId); 
+
+                            if (!response.ok) throw new Error(`伺服器回應錯誤: ${response.status}`);
+                            
+                            const text = await response.text();
+                            if (text.includes('<html') || text.includes('<!DOCTYPE')) {
+                                throw new Error('伺服器過載，回傳了 HTML 錯誤頁面');
+                            }
+                            
+                            console.log(`🏆 競速勝利伺服器: ${apiUrl} (第 ${attempt} 次嘗試)`);
+                            return text; 
+                            
+                        } catch (err) {
+                            clearTimeout(timeoutId);
+                            throw err; 
+                        }
+                    });
 
                     try {
-                        const response = await fetch(apiUrl, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                            body: 'data=' + encodeURIComponent(query),
-                            signal: controller.signal // 綁定切斷控制器
-                        });
-
-                        clearTimeout(timeoutId); // 成功拿到回應，解除計時炸彈
-
-                        if (!response.ok) throw new Error(`伺服器回應錯誤: ${response.status}`);
-                        
-                        const text = await response.text();
-                        if (text.includes('<html') || text.includes('<!DOCTYPE')) {
-                            throw new Error('伺服器過載，回傳了 HTML 錯誤頁面');
+                        // Promise.any 會同時發跑所有請求，並只採用「第一個成功」的結果！
+                        responseText = await Promise.any(fetchPromises);
+                        break; // 如果成功拿到資料，立刻跳出重試迴圈！
+                    } catch (aggregateError) {
+                        if (attempt === maxRetries) {
+                            throw new Error('所有公開地圖伺服器目前都過載，請稍後再試。');
                         }
-                        
-                        console.log(`🏆 競速勝利伺服器: ${apiUrl}`);
-                        return text; // 只要有一個 return 成功，Promise.any 就會立刻結算！
-                        
-                    } catch (err) {
-                        clearTimeout(timeoutId);
-                        throw err; // 失敗的丟出錯誤，Promise.any 會忽略它並等待其他成功的
+                        // 失敗後，等待 (attempt * 1.5) 秒再進行下一次全體請求 (指數退避)
+                        await new Promise(resolve => setTimeout(resolve, attempt * 1500));
                     }
-                });
-
-                // Promise.any 會同時發跑所有請求，並只採用「第一個成功」的結果！
-                responseText = await Promise.any(fetchPromises);
+                }
                 
                 let data;
                 try {
@@ -401,9 +420,8 @@
                 statusMsg.textContent = '資料更新成功！';
                 setTimeout(() => { statusMsg.classList.add('hidden'); }, 2000);
 
-            } catch (aggregateError) {
-                // 當 Promise.any 捕獲錯誤，代表「所有」伺服器都失敗或超時了
-                console.error('所有備援 API 皆請求失敗或超時:', aggregateError);
+            } catch (error) {
+                console.error('所有備援 API 皆請求失敗或超時:', error);
                 restaurantListEl.innerHTML = `
                     <div class="text-center text-red-500 mt-10">
                         <i class="fa-solid fa-triangle-exclamation text-4xl mb-3"></i>
