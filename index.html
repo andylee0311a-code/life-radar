@@ -333,9 +333,13 @@
                 try {
                     console.log(`正在嘗試連線至: ${apiUrl}`);
                     
-                    // 最純粹的 POST，不帶自訂 Header，避免預檢觸發
+                    // 加上 Content-Type，讓伺服器知道我們傳的是表單格式資料
+                    // 不加 Accept，避免觸發嚴格的 CORS 預檢
                     const response = await fetch(apiUrl, {
                         method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded'
+                        },
                         body: 'data=' + encodeURIComponent(query)
                     });
 
