@@ -4,14 +4,14 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>生活通雷達 - 500公尺內的生活便利地圖</title>
-    <!-- 解決 favicon.ico 404 報錯的問題，直接用 Emoji 產生一個雷達圖示 -->
+    <!-- 雷達圖示 -->
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📡</text></svg>">
     
-    <!-- 引入 Tailwind CSS 進行快速排版 -->
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- 引入 Leaflet CSS -->
+    <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <!-- 引入 FontAwesome 圖示 -->
+    <!-- FontAwesome 圖示 -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <style>
@@ -20,55 +20,51 @@
             background-color: #f3f4f6;
             margin: 0;
             padding: 0;
-            height: 100vh; /* 確保 APP 高度等於螢幕 */
-            overflow: hidden; /* 防止整個網頁上下滑動，提升原生 APP 體驗 */
-            display: flex;
-            flex-direction: column;
+            height: 100vh;
+            overflow: hidden; /* 防止整個網頁滑動，打造 APP 體驗 */
         }
 
-        #app-container {
-            display: flex;
-            flex-direction: column;
-            height: 100%;
-        }
+        /* --- 手機版切換核心邏輯 --- */
+        @media (max-width: 767px) {
+            /* 狀態：顯示地圖 */
+            #app-container.show-map #mobile-list-container {
+                display: none;
+            }
+            #app-container.show-map #map-container {
+                display: block;
+                flex: 1; /* 地圖拿走所有剩餘空間 */
+            }
+            #app-container.show-map #sidebar {
+                flex: none; /* 側邊欄只保留按鈕區塊的高度 */
+            }
 
-        @media (min-width: 768px) {
-            #app-container {
-                flex-direction: row;
+            /* 狀態：顯示列表 */
+            #app-container.show-list #mobile-list-container {
+                display: block;
+                flex: 1; /* 列表拿走所有剩餘空間 */
+            }
+            #app-container.show-list #map-container {
+                display: none;
+            }
+            #app-container.show-list #sidebar {
+                flex: 1; 
             }
         }
 
-        #sidebar {
-            /* 手機版：不強迫拉長，而是根據內容適應，最多佔螢幕 50% */
-            flex: none; 
-            max-height: 50vh; 
-            width: 100%;
-            background: white;
-            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
-            z-index: 10;
-            display: flex;
-            flex-direction: column;
-        }
-
+        /* --- 桌面版固定邏輯 --- */
         @media (min-width: 768px) {
             #sidebar {
-                /* 桌面版：固定寬度 380px，高度全螢幕 */
                 width: 380px;
-                max-height: 100vh;
                 height: 100vh;
             }
-        }
-
-        #map-container {
-            /* 地圖永遠拿走「剩下的所有空間」，達到最大化 */
-            flex: 1; 
-            width: 100%;
-            position: relative;
-        }
-
-        #map {
-            width: 100%;
-            height: 100%;
+            #mobile-list-container {
+                display: block !important; /* 桌面版永遠顯示列表 */
+                flex: 1;
+            }
+            #map-container {
+                display: block !important; /* 桌面版永遠顯示地圖 */
+                flex: 1;
+            }
         }
 
         .header {
@@ -77,13 +73,6 @@
             padding: 1rem;
             text-align: center;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
-
-        .restaurant-list {
-            overflow-y: auto;
-            flex: 1;
-            padding: 1rem;
-            position: relative;
         }
 
         .restaurant-card {
@@ -115,17 +104,6 @@
             font-size: 1.2rem;
         }
 
-        .controls-overlay {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            z-index: 1000;
-            background: white;
-            padding: 10px;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-        }
-
         button.btn-primary {
             background-color: #3b82f6;
             color: white;
@@ -137,14 +115,8 @@
             transition: background-color 0.2s;
             width: 100%;
         }
-
-        button.btn-primary:hover {
-            background-color: #2563eb;
-        }
-        button.btn-primary:disabled {
-            background-color: #93c5fd;
-            cursor: not-allowed;
-        }
+        button.btn-primary:hover { background-color: #2563eb; }
+        button.btn-primary:disabled { background-color: #93c5fd; cursor: not-allowed; }
 
         .loader {
             border: 4px solid #f3f3f3;
@@ -155,7 +127,6 @@
             animation: spin 1s linear infinite;
             margin: 10px auto;
         }
-
         @keyframes spin {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
@@ -164,60 +135,68 @@
 </head>
 <body>
 
-    <div id="app-container">
-        <div id="sidebar">
-            <div class="header">
-                <h1 class="text-2xl font-bold"><i class="fa-solid fa-satellite-dish mr-2"></i>生活通雷達</h1>
-                <p class="text-sm opacity-90 mt-1">搜尋方圓 500 公尺內的真實設施</p>
-            </div>
-            
-            <div class="p-4 border-b border-gray-200">
-                <button id="locate-btn" class="btn-primary flex items-center justify-center gap-2">
-                    <i class="fa-solid fa-location-crosshairs"></i> 取得我的位置
-                </button>
-                <div id="status-message" class="text-sm text-center mt-2 text-gray-500 hidden">
-                    正在定位中...
+    <!-- 預設為手機版的 show-map (顯示地圖) 狀態 -->
+    <div id="app-container" class="flex flex-col md:flex-row h-screen w-full show-map">
+        
+        <!-- 左側面板 (包含 Header, 按鈕, 以及在手機上可隱藏的列表) -->
+        <div id="sidebar" class="w-full flex flex-col bg-white shadow-md z-20 flex-none transition-all duration-300">
+            <!-- 頂部固定區塊 (永遠顯示) -->
+            <div class="flex-none">
+                <div class="header">
+                    <h1 class="text-2xl font-bold"><i class="fa-solid fa-satellite-dish mr-2"></i>生活通雷達</h1>
+                    <p class="text-sm opacity-90 mt-1">搜尋方圓 500 公尺內的真實設施</p>
+                </div>
+                
+                <div class="p-4 border-b border-gray-200">
+                    <button id="locate-btn" class="btn-primary flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-location-crosshairs"></i> 取得我的位置
+                    </button>
+                    <div id="status-message" class="text-sm text-center mt-2 text-gray-500 hidden">
+                        正在定位中...
+                    </div>
+
+                    <div class="flex flex-wrap gap-2 mt-4">
+                        <button class="filter-btn flex-auto py-1 px-2 rounded-full text-sm font-semibold bg-gray-800 text-white transition-colors shadow-sm" data-type="all">全部</button>
+                        <button class="filter-btn flex-auto py-1 px-2 rounded-full text-sm font-semibold bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors shadow-sm whitespace-nowrap" data-type="food"><i class="fa-solid fa-utensils"></i> 美食</button>
+                        <button class="filter-btn flex-auto py-1 px-2 rounded-full text-sm font-semibold bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors shadow-sm whitespace-nowrap" data-type="parking"><i class="fa-solid fa-square-parking"></i> 停車場</button>
+                        <button class="filter-btn flex-auto py-1 px-2 rounded-full text-sm font-semibold bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors shadow-sm whitespace-nowrap" data-type="gas_station"><i class="fa-solid fa-gas-pump"></i> 加油站</button>
+                        <button class="filter-btn flex-auto py-1 px-2 rounded-full text-sm font-semibold bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors shadow-sm whitespace-nowrap" data-type="convenience_store"><i class="fa-solid fa-store"></i> 超商</button>
+                        <button class="filter-btn flex-auto py-1 px-2 rounded-full text-sm font-semibold bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors shadow-sm whitespace-nowrap" data-type="public_toilet"><i class="fa-solid fa-restroom"></i> 廁所</button>
+                    </div>
                 </div>
 
-                <div class="flex flex-wrap gap-2 mt-4">
-                    <button class="filter-btn flex-auto py-1 px-2 rounded-full text-sm font-semibold bg-gray-800 text-white transition-colors shadow-sm" data-type="all">全部</button>
-                    <button class="filter-btn flex-auto py-1 px-2 rounded-full text-sm font-semibold bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors shadow-sm whitespace-nowrap" data-type="food"><i class="fa-solid fa-utensils"></i> 美食</button>
-                    <button class="filter-btn flex-auto py-1 px-2 rounded-full text-sm font-semibold bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors shadow-sm whitespace-nowrap" data-type="parking"><i class="fa-solid fa-square-parking"></i> 停車場</button>
-                    <button class="filter-btn flex-auto py-1 px-2 rounded-full text-sm font-semibold bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors shadow-sm whitespace-nowrap" data-type="gas_station"><i class="fa-solid fa-gas-pump"></i> 加油站</button>
-                    <button class="filter-btn flex-auto py-1 px-2 rounded-full text-sm font-semibold bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors shadow-sm whitespace-nowrap" data-type="convenience_store"><i class="fa-solid fa-store"></i> 超商</button>
-                    <button class="filter-btn flex-auto py-1 px-2 rounded-full text-sm font-semibold bg-gray-200 text-gray-700 hover:bg-gray-300 transition-colors shadow-sm whitespace-nowrap" data-type="public_toilet"><i class="fa-solid fa-restroom"></i> 廁所</button>
+                <div id="results-count" class="px-4 py-2 bg-gray-50 text-sm font-semibold text-gray-600 border-b border-gray-200">
+                    點擊上方按鈕開始搜尋...
                 </div>
             </div>
 
-            <div id="results-count" class="px-4 py-2 bg-gray-50 text-sm font-semibold text-gray-600 border-b border-gray-200">
-                尋找附近的地標與設施...
-            </div>
-
-            <div id="restaurant-list" class="restaurant-list">
-                <!-- 視覺瘦身後的初始訊息 -->
-                <div class="text-center text-gray-400 mt-4">
-                    <i class="fa-solid fa-map-location-dot text-3xl mb-2"></i>
-                    <p class="text-sm">點擊上方按鈕開始搜尋</p>
-                </div>
-            </div>
-        </div>
-
-        <div id="map-container">
-            <div id="map"></div>
-            <div class="controls-overlay hidden md:block">
-                <div class="flex flex-wrap items-center gap-2 text-sm text-gray-600 max-w-xs">
-                    <span class="inline-flex items-center"><span class="inline-block w-3 h-3 rounded-full bg-blue-500 mr-1"></span> 你的位置</span>
-                    <span class="inline-flex items-center"><span class="inline-block w-3 h-3 rounded-full bg-red-500 mr-1"></span> 美食</span>
-                    <span class="inline-flex items-center"><span class="inline-block w-3 h-3 rounded-full bg-blue-400 mr-1"></span> 停車場</span>
-                    <span class="inline-flex items-center"><span class="inline-block w-3 h-3 rounded-full bg-orange-500 mr-1"></span> 加油站</span>
-                    <span class="inline-flex items-center"><span class="inline-block w-3 h-3 rounded-full bg-green-500 mr-1"></span> 超商</span>
-                    <span class="inline-flex items-center"><span class="inline-block w-3 h-3 rounded-full bg-teal-500 mr-1"></span> 廁所</span>
+            <!-- 列表區塊 (手機版會與地圖切換顯示) pb-24 是為了不被底部的懸浮按鈕擋住最後一筆 -->
+            <div id="mobile-list-container" class="overflow-y-auto bg-gray-50 pb-24 md:pb-4 transition-all duration-300">
+                <div id="restaurant-list" class="p-4">
+                    <div class="text-center text-gray-400 mt-10">
+                        <i class="fa-solid fa-map-location-dot text-4xl mb-3"></i>
+                        <p class="text-sm leading-relaxed">按下定位按鈕<br>尋找附近設施</p>
+                    </div>
                 </div>
             </div>
         </div>
+
+        <!-- 地圖區塊 -->
+        <div id="map-container" class="w-full relative z-10 transition-all duration-300 bg-gray-200">
+            <div id="map" class="w-full h-full"></div>
+        </div>
+
+        <!-- 手機版專屬：懸浮切換按鈕 (FAB) -->
+        <div id="mobile-fab-container" class="md:hidden fixed bottom-6 left-1/2 transform -translate-x-1/2 z-[2000]">
+            <button id="mobile-toggle-btn" class="bg-gray-900 text-white px-6 py-3 rounded-full shadow-[0_10px_25px_rgba(0,0,0,0.3)] font-bold flex items-center gap-2 border border-gray-700 active:scale-95 transition-transform">
+                <i id="mobile-toggle-icon" class="fa-solid fa-list"></i> 
+                <span id="mobile-toggle-text">看列表</span>
+            </button>
+        </div>
+
     </div>
 
-    <!-- 引入 Leaflet JS -->
+    <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <script>
@@ -238,9 +217,15 @@
         let currentFilter = 'all'; 
         let isLoading = false;
 
+        // 手機版切換狀態：'map' 或 'list'
+        let currentMobileView = 'map'; 
+
         const locateBtn = document.getElementById('locate-btn');
         const statusMsg = document.getElementById('status-message');
         const restaurantListEl = document.getElementById('restaurant-list');
+        const appContainer = document.getElementById('app-container');
+        const toggleBtnIcon = document.getElementById('mobile-toggle-icon');
+        const toggleBtnText = document.getElementById('mobile-toggle-text');
 
         function initMap() {
             map = L.map('map').setView([DEFAULT_LAT, DEFAULT_LNG], 15);
@@ -250,10 +235,44 @@
             markersGroup = L.layerGroup().addTo(map);
             
             locateBtn.addEventListener('click', locateUser);
+            
+            // 綁定手機懸浮按鈕切換事件
+            document.getElementById('mobile-toggle-btn').addEventListener('click', toggleMobileView);
+        }
+
+        function toggleMobileView(forceView = null) {
+            // 如果有強制指定視圖就使用指定的，否則進行切換
+            if (forceView) {
+                currentMobileView = forceView;
+            } else {
+                currentMobileView = currentMobileView === 'map' ? 'list' : 'map';
+            }
+
+            if (currentMobileView === 'list') {
+                appContainer.classList.remove('show-map');
+                appContainer.classList.add('show-list');
+                toggleBtnIcon.className = 'fa-solid fa-map';
+                toggleBtnText.textContent = '看地圖';
+            } else {
+                appContainer.classList.remove('show-list');
+                appContainer.classList.add('show-map');
+                toggleBtnIcon.className = 'fa-solid fa-list';
+                toggleBtnText.textContent = '看列表';
+                
+                // 【關鍵】當地圖從隱藏變為顯示時，必須讓 Leaflet 重新計算大小，否則地圖會破圖
+                setTimeout(() => {
+                    if (map) map.invalidateSize();
+                }, 100);
+            }
         }
 
         function locateUser() {
             if (isLoading) return; 
+            
+            // 手機版點擊定位時，確保畫面自動切換到「地圖」觀看雷達掃描
+            if (window.innerWidth < 768) {
+                toggleMobileView('map');
+            }
             
             statusMsg.textContent = '正在取得您的位置...';
             statusMsg.classList.remove('hidden', 'text-red-500');
@@ -295,11 +314,10 @@
             statusMsg.textContent = '📡 正在連線地圖伺服器...';
             statusMsg.classList.remove('hidden');
             
-            // 視覺瘦身後的 Loading 畫面
             restaurantListEl.innerHTML = `
-                <div class="text-center text-gray-500 mt-4">
+                <div class="text-center text-gray-500 mt-10">
                     <div class="loader"></div>
-                    <p class="mt-2 text-sm">正在掃描方圓 ${SEARCH_RADIUS} 公尺的設施...</p>
+                    <p class="mt-4 text-sm font-semibold text-blue-600">正在掃描方圓 ${SEARCH_RADIUS} 公尺的設施...</p>
                 </div>
             `;
             markersGroup.clearLayers();
@@ -330,12 +348,9 @@
             for (const apiUrl of endpoints) {
                 try {
                     console.log(`正在嘗試連線至: ${apiUrl}`);
-                    
                     const response = await fetch(apiUrl, {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/x-www-form-urlencoded'
-                        },
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                         body: 'data=' + encodeURIComponent(query)
                     });
 
@@ -372,19 +387,22 @@
                 setTimeout(() => { statusMsg.classList.add('hidden'); }, 2000);
 
             } catch (error) {
-                console.error('所有備援 API 皆請求失敗:', error);
-                // 縮小版錯誤訊息
+                console.error('API 請求失敗:', error);
                 restaurantListEl.innerHTML = `
-                    <div class="text-center text-red-500 mt-4">
-                        <i class="fa-solid fa-triangle-exclamation text-3xl mb-2"></i>
-                        <p class="text-sm font-bold">連線不穩定或伺服器滿載。</p>
-                        <p class="text-xs mt-1 text-gray-600">${error.message}</p>
-                        <button onclick="fetchRealData(${lat}, ${lng})" class="mt-3 px-4 py-1.5 bg-blue-100 text-blue-700 rounded-full text-sm hover:bg-blue-200 transition">
-                            <i class="fa-solid fa-rotate-right"></i> 重試一次
+                    <div class="text-center text-red-500 mt-10">
+                        <i class="fa-solid fa-triangle-exclamation text-4xl mb-3"></i>
+                        <p class="font-bold">連線不穩定或伺服器滿載。</p>
+                        <p class="text-xs mt-1 text-gray-500">${error.message}</p>
+                        <button onclick="fetchRealData(${lat}, ${lng})" class="mt-4 px-6 py-2 bg-blue-100 text-blue-700 rounded-full font-bold hover:bg-blue-200 transition shadow-sm">
+                            <i class="fa-solid fa-rotate-right mr-1"></i> 重試一次
                         </button>
                     </div>
                 `;
                 document.getElementById('results-count').innerHTML = '抓取失敗';
+                
+                // 如果失敗，自動切換到列表看錯誤訊息
+                if (window.innerWidth < 768) toggleMobileView('list');
+
             } finally {
                 isLoading = false;
                 locateBtn.disabled = false;
@@ -501,7 +519,7 @@
                     // 1. 產生 Google Maps 導航專用網址
                     const gmapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${item.lat},${item.lng}`;
                     
-                    // 2. 建立卡片專用的導航按鈕 HTML
+                    // 2. 建立卡片專用的導航按鈕 HTML (包含 event.stopPropagation() 防止冒泡)
                     const navBtnHtml = `
                         <a href="${gmapsUrl}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();" 
                            class="mt-3 flex items-center justify-center w-full py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700 font-bold rounded-lg text-sm transition-colors border border-blue-200">
@@ -522,7 +540,7 @@
                         cardContent = `<h3 class="text-lg font-bold text-gray-800"><i class="fa-solid fa-utensils text-red-400 mr-1"></i> ${item.name}</h3>
                                        <div class="flex justify-between items-center mt-2 text-sm text-gray-600">
                                             <span><i class="fa-solid fa-person-walking"></i> ${Math.round(item.distance)} m</span>
-                                            <span class="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">${item.type}</span>
+                                            <span class="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">${item.type}</span>
                                        </div>` + navBtnHtml;
                     } else if (item.category === 'parking') {
                         popupContent = `<div class="custom-popup"><h3 style="color:#3b82f6;">${item.name}</h3>${popupNavBtnHtml}</div>`;
@@ -567,13 +585,16 @@
 
                     marker.bindPopup(popupContent);
                     const card = document.createElement('div');
-                    card.className = 'restaurant-card';
+                    card.className = 'restaurant-card shadow-sm hover:shadow-md';
                     card.innerHTML = cardContent;
                     
+                    // 當在列表中點擊卡片時，自動幫使用者切換回「地圖模式」看確切位置！
                     card.addEventListener('click', () => {
-                        map.setView([item.lat, item.lng], 17);
+                        map.setView([item.lat, item.lng], 18); // 放大層級至 18
                         marker.openPopup();
-                        if (window.innerWidth < 768) document.getElementById('map-container').scrollIntoView({ behavior: 'smooth' });
+                        if (window.innerWidth < 768) {
+                            toggleMobileView('map');
+                        }
                     });
                     restaurantListEl.appendChild(card);
                 }
@@ -590,13 +611,15 @@
             document.getElementById('results-count').innerHTML = countText;
 
             if (total === 0) {
-                // 視覺瘦身後的無資料訊息
                 restaurantListEl.innerHTML = `
-                    <div class="text-center text-gray-500 mt-4">
-                        <i class="fa-regular fa-face-frown text-3xl mb-2"></i>
-                        <p class="text-sm leading-relaxed">方圓 ${SEARCH_RADIUS} 公尺內沒有找到資料。<br>OSM 上可能尚未建立此處地標。</p>
+                    <div class="text-center text-gray-400 mt-10">
+                        <i class="fa-regular fa-face-frown text-4xl mb-3"></i>
+                        <p class="text-sm leading-relaxed">方圓 ${SEARCH_RADIUS} 公尺內沒有找到符合的地標。</p>
                     </div>
                 `;
+            } else {
+                // 如果找到資料，且目前在手機版，預設跳轉到「列表模式」讓使用者方便瀏覽
+                if (window.innerWidth < 768) toggleMobileView('list');
             }
         }
 
