@@ -35,19 +35,22 @@
                 flex: 1; /* 地圖拿走所有剩餘空間 */
             }
             #app-container.show-map #sidebar {
-                flex: none; /* 側邊欄只保留按鈕區塊的高度 */
+                flex: none; 
+                max-height: 50vh; /* 地圖模式下，面板最多佔 50% 高度 */
             }
 
             /* 狀態：顯示列表 */
             #app-container.show-list #mobile-list-container {
                 display: block;
                 flex: 1; /* 列表拿走所有剩餘空間 */
+                min-height: 0; /* 關鍵修正：確保 iOS/Safari 上內部捲動軸正常運作 */
             }
             #app-container.show-list #map-container {
                 display: none;
             }
             #app-container.show-list #sidebar {
                 flex: 1; 
+                max-height: 100vh; /* 關鍵修正：列表模式下，解除高度限制，完整填滿螢幕！ */
             }
         }
 
@@ -56,15 +59,28 @@
             #sidebar {
                 width: 380px;
                 height: 100vh;
+                max-height: 100vh;
             }
             #mobile-list-container {
                 display: block !important; /* 桌面版永遠顯示列表 */
                 flex: 1;
+                min-height: 0;
             }
             #map-container {
                 display: block !important; /* 桌面版永遠顯示地圖 */
                 flex: 1;
             }
+        }
+
+        #sidebar {
+            flex: none; 
+            width: 100%;
+            background: white;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+            z-index: 10;
+            display: flex;
+            flex-direction: column;
+            transition: max-height 0.3s ease-in-out; /* 讓切換高度時比較平滑 */
         }
 
         .header {
@@ -135,12 +151,9 @@
 </head>
 <body>
 
-    <!-- 預設為手機版的 show-map (顯示地圖) 狀態 -->
     <div id="app-container" class="flex flex-col md:flex-row h-screen w-full show-map">
         
-        <!-- 左側面板 (包含 Header, 按鈕, 以及在手機上可隱藏的列表) -->
         <div id="sidebar" class="w-full flex flex-col bg-white shadow-md z-20 flex-none transition-all duration-300">
-            <!-- 頂部固定區塊 (永遠顯示) -->
             <div class="flex-none">
                 <div class="header">
                     <h1 class="text-2xl font-bold"><i class="fa-solid fa-satellite-dish mr-2"></i>生活通雷達</h1>
@@ -170,7 +183,7 @@
                 </div>
             </div>
 
-            <!-- 列表區塊 (手機版會與地圖切換顯示) pb-24 是為了不被底部的懸浮按鈕擋住最後一筆 -->
+            <!-- 列表區塊 -->
             <div id="mobile-list-container" class="overflow-y-auto bg-gray-50 pb-24 md:pb-4 transition-all duration-300">
                 <div id="restaurant-list" class="p-4">
                     <div class="text-center text-gray-400 mt-10">
@@ -181,12 +194,11 @@
             </div>
         </div>
 
-        <!-- 地圖區塊 -->
         <div id="map-container" class="w-full relative z-10 transition-all duration-300 bg-gray-200">
             <div id="map" class="w-full h-full"></div>
         </div>
 
-        <!-- 手機版專屬：懸浮切換按鈕 (FAB) -->
+        <!-- 手機版懸浮切換按鈕 (FAB) -->
         <div id="mobile-fab-container" class="md:hidden fixed bottom-6 left-1/2 transform -translate-x-1/2 z-[2000]">
             <button id="mobile-toggle-btn" class="bg-gray-900 text-white px-6 py-3 rounded-full shadow-[0_10px_25px_rgba(0,0,0,0.3)] font-bold flex items-center gap-2 border border-gray-700 active:scale-95 transition-transform">
                 <i id="mobile-toggle-icon" class="fa-solid fa-list"></i> 
@@ -217,7 +229,6 @@
         let currentFilter = 'all'; 
         let isLoading = false;
 
-        // 手機版切換狀態：'map' 或 'list'
         let currentMobileView = 'map'; 
 
         const locateBtn = document.getElementById('locate-btn');
@@ -235,13 +246,10 @@
             markersGroup = L.layerGroup().addTo(map);
             
             locateBtn.addEventListener('click', locateUser);
-            
-            // 綁定手機懸浮按鈕切換事件
-            document.getElementById('mobile-toggle-btn').addEventListener('click', toggleMobileView);
+            document.getElementById('mobile-toggle-btn').addEventListener('click', () => toggleMobileView());
         }
 
         function toggleMobileView(forceView = null) {
-            // 如果有強制指定視圖就使用指定的，否則進行切換
             if (forceView) {
                 currentMobileView = forceView;
             } else {
@@ -259,7 +267,6 @@
                 toggleBtnIcon.className = 'fa-solid fa-list';
                 toggleBtnText.textContent = '看列表';
                 
-                // 【關鍵】當地圖從隱藏變為顯示時，必須讓 Leaflet 重新計算大小，否則地圖會破圖
                 setTimeout(() => {
                     if (map) map.invalidateSize();
                 }, 100);
@@ -269,7 +276,6 @@
         function locateUser() {
             if (isLoading) return; 
             
-            // 手機版點擊定位時，確保畫面自動切換到「地圖」觀看雷達掃描
             if (window.innerWidth < 768) {
                 toggleMobileView('map');
             }
@@ -400,7 +406,6 @@
                 `;
                 document.getElementById('results-count').innerHTML = '抓取失敗';
                 
-                // 如果失敗，自動切換到列表看錯誤訊息
                 if (window.innerWidth < 768) toggleMobileView('list');
 
             } finally {
@@ -516,17 +521,14 @@
                     
                     let popupContent, cardContent;
 
-                    // 1. 產生 Google Maps 導航專用網址
                     const gmapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${item.lat},${item.lng}`;
                     
-                    // 2. 建立卡片專用的導航按鈕 HTML (包含 event.stopPropagation() 防止冒泡)
                     const navBtnHtml = `
                         <a href="${gmapsUrl}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();" 
                            class="mt-3 flex items-center justify-center w-full py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700 font-bold rounded-lg text-sm transition-colors border border-blue-200">
                             <i class="fa-solid fa-diamond-turn-right mr-2"></i> 開始導航
                         </a>`;
                         
-                    // 3. 建立地圖氣泡專用的導航按鈕 HTML
                     const popupNavBtnHtml = `
                         <div style="margin-top: 10px; text-align: center;">
                             <a href="${gmapsUrl}" target="_blank" rel="noopener noreferrer" 
@@ -588,9 +590,8 @@
                     card.className = 'restaurant-card shadow-sm hover:shadow-md';
                     card.innerHTML = cardContent;
                     
-                    // 當在列表中點擊卡片時，自動幫使用者切換回「地圖模式」看確切位置！
                     card.addEventListener('click', () => {
-                        map.setView([item.lat, item.lng], 18); // 放大層級至 18
+                        map.setView([item.lat, item.lng], 18); 
                         marker.openPopup();
                         if (window.innerWidth < 768) {
                             toggleMobileView('map');
@@ -618,7 +619,6 @@
                     </div>
                 `;
             } else {
-                // 如果找到資料，且目前在手機版，預設跳轉到「列表模式」讓使用者方便瀏覽
                 if (window.innerWidth < 768) toggleMobileView('list');
             }
         }
