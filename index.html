@@ -333,13 +333,13 @@
             const query = `
                 [out:json][timeout:10];
                 (
-                  nwr["amenity"~"restaurant|cafe|fast_food|food_court"](around:${SEARCH_RADIUS},${lat},${lng});
-                  nwr["amenity"="parking"](around:${SEARCH_RADIUS},${lat},${lng});
-                  nwr["amenity"="fuel"](around:${SEARCH_RADIUS},${lat},${lng});
-                  nwr["shop"="convenience"](around:${SEARCH_RADIUS},${lat},${lng});
-                  nwr["amenity"="toilets"](around:${SEARCH_RADIUS},${lat},${lng});
+                  nw["amenity"~"restaurant|cafe|fast_food|food_court"](around:${SEARCH_RADIUS},${lat},${lng});
+                  nw["amenity"="parking"](around:${SEARCH_RADIUS},${lat},${lng});
+                  nw["amenity"="fuel"](around:${SEARCH_RADIUS},${lat},${lng});
+                  nw["shop"="convenience"](around:${SEARCH_RADIUS},${lat},${lng});
+                  nw["amenity"="toilets"](around:${SEARCH_RADIUS},${lat},${lng});
                 );
-                out center;
+                out center qt;
             `;
 
             // 擴充備援清單，加入更多國外的開源分流節點
@@ -515,6 +515,9 @@
             let foundCount = { food: 0, parking: 0, gas: 0, store: 0, toilet: 0 };
             const userLatLng = L.latLng(userLat, userLng);
 
+            // 【效能優化 3】建立虛擬文件碎片 (DocumentFragment)，批量渲染卡片
+            const fragment = document.createDocumentFragment();
+
             const createIcon = (color, iconClass) => L.divIcon({
                 html: `<div style="color:${color}; font-size:24px; text-shadow: 1px 1px 2px rgba(0,0,0,0.3);"><i class="${iconClass}"></i></div>`,
                 className: '', iconSize: [24, 24], iconAnchor: [12, 24], popupAnchor: [0, -24]
@@ -625,9 +628,14 @@
                             toggleMobileView('map');
                         }
                     });
-                    restaurantListEl.appendChild(card);
+                    
+                    // 【效能優化 3】將卡片先存入記憶體碎片中，不直接觸發畫面重繪
+                    fragment.appendChild(card);
                 }
             });
+
+            // 【效能優化 3】迴圈結束後，一次性將數十張卡片推上畫面，瞬間完成！
+            restaurantListEl.appendChild(fragment);
 
             const total = Object.values(foundCount).reduce((a, b) => a + b, 0);
             let countText = `總共找到 ${total} 個地點`;
