@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>生活通雷達 - 500公尺內的生活便利地圖</title>
+    <!-- 解決 favicon.ico 404 報錯的問題，直接用 Emoji 產生一個雷達圖示 -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📡</text></svg>">
+    
     <!-- 引入 Tailwind CSS 進行快速排版 -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- 引入 Leaflet CSS -->
@@ -218,7 +221,6 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <script>
-        // 預設中心點 (台北車站，驗證多邊形地標抓取)
         const DEFAULT_LAT = 25.0478;
         const DEFAULT_LNG = 121.5170;
         const SEARCH_RADIUS = 500; 
@@ -248,8 +250,6 @@
             markersGroup = L.layerGroup().addTo(map);
             
             locateBtn.addEventListener('click', locateUser);
-            
-            // 頁面載入時直接掃描一次
             fetchRealData(DEFAULT_LAT, DEFAULT_LNG);
         }
 
@@ -293,7 +293,7 @@
         async function fetchRealData(lat, lng) {
             isLoading = true;
             locateBtn.disabled = true;
-            statusMsg.textContent = '📡 正在向地圖伺服器請求資料...';
+            statusMsg.textContent = '📡 正在連線地圖伺服器...';
             statusMsg.classList.remove('hidden');
             
             restaurantListEl.innerHTML = `
@@ -318,34 +318,53 @@
                 out center;
             `;
 
-            try {
-                const apiUrl = 'https://overpass-api.de/api/interpreter';
-                
-                // 【終極解法】拔掉所有複雜的 Headers 和 URLSearchParams
-                // 回歸最原始的表單提交格式
-                const response = await fetch(apiUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-type': 'application/x-www-form-urlencoded'
-                    },
-                    body: 'data=' + encodeURIComponent(query)
-                });
+            // 【終極解決方案】：多伺服器備援 (Failover) 清單
+            // 如果第一台太忙擋我們 CORS，我們就自動無縫切換去問下一台！
+            const endpoints = [
+                'https://overpass-api.de/api/interpreter',         // 德國主伺服器
+                'https://lz4.overpass-api.de/api/interpreter',     // 德國分流
+                'https://overpass.kumi.systems/api/interpreter'    // 第三方開源伺服器 (通常對 CORS 很友善)
+            ];
 
-                const responseText = await response.text();
+            let responseText = null;
+            let fetchSuccess = false;
 
-                if (!response.ok) {
-                    let errorMessage = `伺服器回應錯誤 (狀態碼: ${response.status})`;
-                    if (responseText.includes('<html') || responseText.includes('<!DOCTYPE')) {
-                        errorMessage = '伺服器目前忙碌中或過載，請稍後再試。';
+            for (const apiUrl of endpoints) {
+                try {
+                    console.log(`正在嘗試連線至: ${apiUrl}`);
+                    
+                    // 最純粹的 POST，不帶自訂 Header，避免預檢觸發
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        body: 'data=' + encodeURIComponent(query)
+                    });
+
+                    if (response.ok) {
+                        const text = await response.text();
+                        // 確保拿到的不是伺服器過載的 HTML 錯誤頁面
+                        if (!text.includes('<html') && !text.includes('<!DOCTYPE')) {
+                            responseText = text;
+                            fetchSuccess = true;
+                            console.log(`連線成功！來源: ${apiUrl}`);
+                            break; // 成功拿到資料，跳出迴圈
+                        }
                     }
-                    throw new Error(errorMessage);
+                } catch (error) {
+                    console.warn(`伺服器 ${apiUrl} 拒絕連線或過載，自動切換下一台...`);
+                    // 迴圈會繼續執行，嘗試下一台伺服器
+                }
+            }
+
+            try {
+                if (!fetchSuccess || !responseText) {
+                    throw new Error('所有公開地圖伺服器目前都過載，請稍後再試。');
                 }
                 
                 let data;
                 try {
                     data = JSON.parse(responseText);
                 } catch (e) {
-                    throw new Error('無法解析伺服器回傳的資料 (可能不是有效的 JSON 格式)。');
+                    throw new Error('無法解析伺服器回傳的資料格式。');
                 }
                 
                 parseOverpassData(data.elements);
@@ -355,11 +374,11 @@
                 setTimeout(() => { statusMsg.classList.add('hidden'); }, 2000);
 
             } catch (error) {
-                console.error('API 請求失敗:', error);
+                console.error('所有備援 API 皆請求失敗:', error);
                 restaurantListEl.innerHTML = `
                     <div class="text-center text-red-500 mt-10">
                         <i class="fa-solid fa-triangle-exclamation text-4xl mb-3"></i>
-                        <p>抓取資料失敗。</p>
+                        <p>連線不穩定或伺服器滿載。</p>
                         <p class="text-sm mt-2 text-gray-600">${error.message}</p>
                         <button onclick="fetchRealData(${lat}, ${lng})" class="mt-4 px-4 py-2 bg-blue-100 text-blue-700 rounded-full text-sm hover:bg-blue-200 transition">
                             <i class="fa-solid fa-rotate-right"></i> 重試一次
