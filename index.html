@@ -250,7 +250,8 @@
             markersGroup = L.layerGroup().addTo(map);
             
             locateBtn.addEventListener('click', locateUser);
-            fetchRealData(DEFAULT_LAT, DEFAULT_LNG);
+            // 已經將自動搜尋移除，等待使用者主動點擊按鈕
+            // fetchRealData(DEFAULT_LAT, DEFAULT_LNG);
         }
 
         function locateUser() {
@@ -503,29 +504,49 @@
                     
                     let popupContent, cardContent;
 
+                    // 1. 產生 Google Maps 導航專用網址
+                    const gmapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${item.lat},${item.lng}`;
+                    
+                    // 2. 建立卡片專用的導航按鈕 HTML
+                    // 關鍵技巧：加入 onclick="event.stopPropagation();"，避免點擊按鈕時，也觸發了卡片本身的「地圖置中」點擊事件
+                    const navBtnHtml = `
+                        <a href="${gmapsUrl}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();" 
+                           class="mt-3 flex items-center justify-center w-full py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700 font-bold rounded-lg text-sm transition-colors border border-blue-200">
+                            <i class="fa-solid fa-diamond-turn-right mr-2"></i> 開始導航
+                        </a>`;
+                        
+                    // 3. 建立地圖氣泡專用的導航按鈕 HTML
+                    const popupNavBtnHtml = `
+                        <div style="margin-top: 10px; text-align: center;">
+                            <a href="${gmapsUrl}" target="_blank" rel="noopener noreferrer" 
+                               style="display: block; background: #3b82f6; color: white; padding: 6px 10px; text-decoration: none; border-radius: 4px; font-size: 13px; font-weight: bold;">
+                                <i class="fa-solid fa-diamond-turn-right"></i> 開始導航
+                            </a>
+                        </div>`;
+
                     if (item.category === 'food') {
-                        popupContent = `<div class="custom-popup"><h3 style="color:#ff5a5f;">${item.name}</h3><p>${item.type}</p></div>`;
+                        popupContent = `<div class="custom-popup"><h3 style="color:#ff5a5f;">${item.name}</h3><p>${item.type}</p>${popupNavBtnHtml}</div>`;
                         cardContent = `<h3 class="text-lg font-bold text-gray-800"><i class="fa-solid fa-utensils text-red-400 mr-1"></i> ${item.name}</h3>
                                        <div class="flex justify-between items-center mt-2 text-sm text-gray-600">
                                             <span><i class="fa-solid fa-person-walking"></i> ${Math.round(item.distance)} m</span>
                                             <span class="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">${item.type}</span>
-                                       </div>`;
+                                       </div>` + navBtnHtml;
                     } else if (item.category === 'parking') {
-                        popupContent = `<div class="custom-popup"><h3 style="color:#3b82f6;">${item.name}</h3></div>`;
+                        popupContent = `<div class="custom-popup"><h3 style="color:#3b82f6;">${item.name}</h3>${popupNavBtnHtml}</div>`;
                         cardContent = `<h3 class="text-lg font-bold text-gray-800"><i class="fa-solid fa-square-parking text-blue-500 mr-1"></i> ${item.name}</h3>
                                        <div class="flex justify-between items-center mt-2 text-sm text-gray-600">
                                             <span><i class="fa-solid fa-person-walking"></i> ${Math.round(item.distance)} m</span>
                                             <span class="text-xs text-blue-600 font-semibold bg-blue-50 px-2 py-1 rounded border border-blue-100">${item.price}</span>
-                                       </div>`;
+                                       </div>` + navBtnHtml;
                     } else if (item.category === 'gas_station') {
-                        popupContent = `<div class="custom-popup"><h3 style="color:#f97316;">${item.name}</h3></div>`;
+                        popupContent = `<div class="custom-popup"><h3 style="color:#f97316;">${item.name}</h3>${popupNavBtnHtml}</div>`;
                         cardContent = `<h3 class="text-lg font-bold text-gray-800"><i class="fa-solid fa-gas-pump text-orange-500 mr-1"></i> ${item.name}</h3>
                                        <div class="flex justify-between items-center mt-2 text-sm text-gray-600">
                                             <span><i class="fa-solid fa-person-walking"></i> ${Math.round(item.distance)} m</span>
                                             <span class="text-xs text-orange-600 font-semibold">${item.hasSelfService ? '標示自助加油' : ''}</span>
-                                       </div>`;
+                                       </div>` + navBtnHtml;
                     } else if (item.category === 'convenience_store') {
-                        popupContent = `<div class="custom-popup"><h3 style="color:#22c55e;">${item.name}</h3></div>`;
+                        popupContent = `<div class="custom-popup"><h3 style="color:#22c55e;">${item.name}</h3>${popupNavBtnHtml}</div>`;
                         cardContent = `
                             <div class="flex justify-between items-start">
                                 <h3 class="text-lg font-bold text-gray-800"><i class="fa-solid fa-store text-green-500 mr-1"></i> ${item.name}</h3>
@@ -541,14 +562,14 @@
                             <div class="flex justify-between items-center mt-3 text-sm text-gray-600">
                                 <span><i class="fa-solid fa-person-walking"></i> ${Math.round(item.distance)} m</span>
                             </div>
-                        `;
+                        ` + navBtnHtml;
                     } else if (item.category === 'public_toilet') {
-                        popupContent = `<div class="custom-popup"><h3 style="color:#14b8a6;">${item.name}</h3></div>`;
+                        popupContent = `<div class="custom-popup"><h3 style="color:#14b8a6;">${item.name}</h3>${popupNavBtnHtml}</div>`;
                         cardContent = `<h3 class="text-lg font-bold text-gray-800"><i class="fa-solid fa-restroom text-teal-500 mr-1"></i> ${item.name}</h3>
                                        <div class="flex justify-between items-center mt-2 text-sm text-gray-600">
                                             <span><i class="fa-solid fa-person-walking"></i> ${Math.round(item.distance)} m</span>
                                             <span class="text-xs text-teal-600 font-semibold bg-teal-50 px-2 py-1 rounded border border-teal-100">${item.isAccessible ? '<i class="fa-solid fa-wheelchair"></i> 無障礙' : '一般公廁'}</span>
-                                       </div>`;
+                                       </div>` + navBtnHtml;
                     }
 
                     marker.bindPopup(popupContent);
