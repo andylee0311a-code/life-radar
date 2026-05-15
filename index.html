@@ -331,7 +331,7 @@
             updateMapCenterAndCircle(lat, lng);
 
             const query = `
-                [out:json][timeout:25];
+                [out:json][timeout:10];
                 (
                   nwr["amenity"~"restaurant|cafe|fast_food|food_court"](around:${SEARCH_RADIUS},${lat},${lng});
                   nwr["amenity"="parking"](around:${SEARCH_RADIUS},${lat},${lng});
@@ -342,42 +342,51 @@
                 out center;
             `;
 
+            // 擴充備援清單，加入更多國外的開源分流節點
             const endpoints = [
                 'https://overpass-api.de/api/interpreter',         
                 'https://lz4.overpass-api.de/api/interpreter',     
-                'https://overpass.kumi.systems/api/interpreter'    
+                'https://overpass.kumi.systems/api/interpreter',
+                'https://maps.mail.ru/osm/tools/overpass/api/interpreter' 
             ];
 
             let responseText = null;
-            let fetchSuccess = false;
-
-            for (const apiUrl of endpoints) {
-                try {
-                    console.log(`正在嘗試連線至: ${apiUrl}`);
-                    const response = await fetch(apiUrl, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body: 'data=' + encodeURIComponent(query)
-                    });
-
-                    if (response.ok) {
-                        const text = await response.text();
-                        if (!text.includes('<html') && !text.includes('<!DOCTYPE')) {
-                            responseText = text;
-                            fetchSuccess = true;
-                            console.log(`連線成功！來源: ${apiUrl}`);
-                            break; 
-                        }
-                    }
-                } catch (error) {
-                    console.warn(`伺服器 ${apiUrl} 拒絕連線或過載，自動切換下一台...`);
-                }
-            }
 
             try {
-                if (!fetchSuccess || !responseText) {
-                    throw new Error('所有公開地圖伺服器目前都過載，請稍後再試。');
-                }
+                // 【終極升級】：並行競速機制 (Promise.any) + 10秒強制超時切斷
+                const fetchPromises = endpoints.map(async (apiUrl) => {
+                    const controller = new AbortController();
+                    // 設定 10 秒超時，時間一到直接切斷該連線，絕不死等
+                    const timeoutId = setTimeout(() => controller.abort(), 10000); 
+
+                    try {
+                        const response = await fetch(apiUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: 'data=' + encodeURIComponent(query),
+                            signal: controller.signal // 綁定切斷控制器
+                        });
+
+                        clearTimeout(timeoutId); // 成功拿到回應，解除計時炸彈
+
+                        if (!response.ok) throw new Error(`伺服器回應錯誤: ${response.status}`);
+                        
+                        const text = await response.text();
+                        if (text.includes('<html') || text.includes('<!DOCTYPE')) {
+                            throw new Error('伺服器過載，回傳了 HTML 錯誤頁面');
+                        }
+                        
+                        console.log(`🏆 競速勝利伺服器: ${apiUrl}`);
+                        return text; // 只要有一個 return 成功，Promise.any 就會立刻結算！
+                        
+                    } catch (err) {
+                        clearTimeout(timeoutId);
+                        throw err; // 失敗的丟出錯誤，Promise.any 會忽略它並等待其他成功的
+                    }
+                });
+
+                // Promise.any 會同時發跑所有請求，並只採用「第一個成功」的結果！
+                responseText = await Promise.any(fetchPromises);
                 
                 let data;
                 try {
@@ -392,13 +401,14 @@
                 statusMsg.textContent = '資料更新成功！';
                 setTimeout(() => { statusMsg.classList.add('hidden'); }, 2000);
 
-            } catch (error) {
-                console.error('API 請求失敗:', error);
+            } catch (aggregateError) {
+                // 當 Promise.any 捕獲錯誤，代表「所有」伺服器都失敗或超時了
+                console.error('所有備援 API 皆請求失敗或超時:', aggregateError);
                 restaurantListEl.innerHTML = `
                     <div class="text-center text-red-500 mt-10">
                         <i class="fa-solid fa-triangle-exclamation text-4xl mb-3"></i>
                         <p class="font-bold">連線不穩定或伺服器滿載。</p>
-                        <p class="text-xs mt-1 text-gray-500">${error.message}</p>
+                        <p class="text-xs mt-1 text-gray-500">所有伺服器目前皆無法回應，請稍後再試。</p>
                         <button onclick="fetchRealData(${lat}, ${lng})" class="mt-4 px-6 py-2 bg-blue-100 text-blue-700 rounded-full font-bold hover:bg-blue-200 transition shadow-sm">
                             <i class="fa-solid fa-rotate-right mr-1"></i> 重試一次
                         </button>
