@@ -20,7 +20,8 @@
             background-color: #f3f4f6;
             margin: 0;
             padding: 0;
-            height: 100vh;
+            height: 100vh; /* 確保 APP 高度等於螢幕 */
+            overflow: hidden; /* 防止整個網頁上下滑動，提升原生 APP 體驗 */
             display: flex;
             flex-direction: column;
         }
@@ -38,8 +39,10 @@
         }
 
         #sidebar {
-            flex: 1;
-            max-width: 100%;
+            /* 手機版：不強迫拉長，而是根據內容適應，最多佔螢幕 50% */
+            flex: none; 
+            max-height: 50vh; 
+            width: 100%;
             background: white;
             box-shadow: 2px 0 5px rgba(0,0,0,0.1);
             z-index: 10;
@@ -49,22 +52,18 @@
 
         @media (min-width: 768px) {
             #sidebar {
-                max-width: 380px;
+                /* 桌面版：固定寬度 380px，高度全螢幕 */
+                width: 380px;
+                max-height: 100vh;
                 height: 100vh;
             }
         }
 
         #map-container {
-            flex: 2;
-            height: 50vh;
+            /* 地圖永遠拿走「剩下的所有空間」，達到最大化 */
+            flex: 1; 
             width: 100%;
             position: relative;
-        }
-
-        @media (min-width: 768px) {
-            #map-container {
-                height: 100vh;
-            }
         }
 
         #map {
@@ -151,10 +150,10 @@
             border: 4px solid #f3f3f3;
             border-top: 4px solid #3b82f6;
             border-radius: 50%;
-            width: 40px;
-            height: 40px;
+            width: 30px;
+            height: 30px;
             animation: spin 1s linear infinite;
-            margin: 20px auto;
+            margin: 10px auto;
         }
 
         @keyframes spin {
@@ -195,9 +194,10 @@
             </div>
 
             <div id="restaurant-list" class="restaurant-list">
-                <div class="text-center text-gray-400 mt-10">
-                    <i class="fa-solid fa-map-location-dot text-4xl mb-3"></i>
-                    <p>點擊上方按鈕開始搜尋</p>
+                <!-- 視覺瘦身後的初始訊息 -->
+                <div class="text-center text-gray-400 mt-4">
+                    <i class="fa-solid fa-map-location-dot text-3xl mb-2"></i>
+                    <p class="text-sm">點擊上方按鈕開始搜尋</p>
                 </div>
             </div>
         </div>
@@ -250,8 +250,6 @@
             markersGroup = L.layerGroup().addTo(map);
             
             locateBtn.addEventListener('click', locateUser);
-            // 已經將自動搜尋移除，等待使用者主動點擊按鈕
-            // fetchRealData(DEFAULT_LAT, DEFAULT_LNG);
         }
 
         function locateUser() {
@@ -297,10 +295,11 @@
             statusMsg.textContent = '📡 正在連線地圖伺服器...';
             statusMsg.classList.remove('hidden');
             
+            // 視覺瘦身後的 Loading 畫面
             restaurantListEl.innerHTML = `
-                <div class="text-center text-gray-500 mt-10">
+                <div class="text-center text-gray-500 mt-4">
                     <div class="loader"></div>
-                    <p class="mt-4">正在掃描方圓 ${SEARCH_RADIUS} 公尺的設施...</p>
+                    <p class="mt-2 text-sm">正在掃描方圓 ${SEARCH_RADIUS} 公尺的設施...</p>
                 </div>
             `;
             markersGroup.clearLayers();
@@ -319,12 +318,10 @@
                 out center;
             `;
 
-            // 【終極解決方案】：多伺服器備援 (Failover) 清單
-            // 如果第一台太忙擋我們 CORS，我們就自動無縫切換去問下一台！
             const endpoints = [
-                'https://overpass-api.de/api/interpreter',         // 德國主伺服器
-                'https://lz4.overpass-api.de/api/interpreter',     // 德國分流
-                'https://overpass.kumi.systems/api/interpreter'    // 第三方開源伺服器 (通常對 CORS 很友善)
+                'https://overpass-api.de/api/interpreter',         
+                'https://lz4.overpass-api.de/api/interpreter',     
+                'https://overpass.kumi.systems/api/interpreter'    
             ];
 
             let responseText = null;
@@ -334,8 +331,6 @@
                 try {
                     console.log(`正在嘗試連線至: ${apiUrl}`);
                     
-                    // 加上 Content-Type，讓伺服器知道我們傳的是表單格式資料
-                    // 不加 Accept，避免觸發嚴格的 CORS 預檢
                     const response = await fetch(apiUrl, {
                         method: 'POST',
                         headers: {
@@ -346,17 +341,15 @@
 
                     if (response.ok) {
                         const text = await response.text();
-                        // 確保拿到的不是伺服器過載的 HTML 錯誤頁面
                         if (!text.includes('<html') && !text.includes('<!DOCTYPE')) {
                             responseText = text;
                             fetchSuccess = true;
                             console.log(`連線成功！來源: ${apiUrl}`);
-                            break; // 成功拿到資料，跳出迴圈
+                            break; 
                         }
                     }
                 } catch (error) {
                     console.warn(`伺服器 ${apiUrl} 拒絕連線或過載，自動切換下一台...`);
-                    // 迴圈會繼續執行，嘗試下一台伺服器
                 }
             }
 
@@ -380,12 +373,13 @@
 
             } catch (error) {
                 console.error('所有備援 API 皆請求失敗:', error);
+                // 縮小版錯誤訊息
                 restaurantListEl.innerHTML = `
-                    <div class="text-center text-red-500 mt-10">
-                        <i class="fa-solid fa-triangle-exclamation text-4xl mb-3"></i>
-                        <p>連線不穩定或伺服器滿載。</p>
-                        <p class="text-sm mt-2 text-gray-600">${error.message}</p>
-                        <button onclick="fetchRealData(${lat}, ${lng})" class="mt-4 px-4 py-2 bg-blue-100 text-blue-700 rounded-full text-sm hover:bg-blue-200 transition">
+                    <div class="text-center text-red-500 mt-4">
+                        <i class="fa-solid fa-triangle-exclamation text-3xl mb-2"></i>
+                        <p class="text-sm font-bold">連線不穩定或伺服器滿載。</p>
+                        <p class="text-xs mt-1 text-gray-600">${error.message}</p>
+                        <button onclick="fetchRealData(${lat}, ${lng})" class="mt-3 px-4 py-1.5 bg-blue-100 text-blue-700 rounded-full text-sm hover:bg-blue-200 transition">
                             <i class="fa-solid fa-rotate-right"></i> 重試一次
                         </button>
                     </div>
@@ -508,7 +502,6 @@
                     const gmapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${item.lat},${item.lng}`;
                     
                     // 2. 建立卡片專用的導航按鈕 HTML
-                    // 關鍵技巧：加入 onclick="event.stopPropagation();"，避免點擊按鈕時，也觸發了卡片本身的「地圖置中」點擊事件
                     const navBtnHtml = `
                         <a href="${gmapsUrl}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();" 
                            class="mt-3 flex items-center justify-center w-full py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700 font-bold rounded-lg text-sm transition-colors border border-blue-200">
@@ -597,10 +590,11 @@
             document.getElementById('results-count').innerHTML = countText;
 
             if (total === 0) {
+                // 視覺瘦身後的無資料訊息
                 restaurantListEl.innerHTML = `
-                    <div class="text-center text-gray-500 mt-10">
-                        <i class="fa-regular fa-face-frown text-4xl mb-3"></i>
-                        <p>方圓 ${SEARCH_RADIUS} 公尺內沒有找到資料。<br>OpenStreetMap 上可能還沒有人建立這裡的地標。</p>
+                    <div class="text-center text-gray-500 mt-4">
+                        <i class="fa-regular fa-face-frown text-3xl mb-2"></i>
+                        <p class="text-sm leading-relaxed">方圓 ${SEARCH_RADIUS} 公尺內沒有找到資料。<br>OSM 上可能尚未建立此處地標。</p>
                     </div>
                 `;
             }
