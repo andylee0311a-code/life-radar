@@ -340,7 +340,6 @@
             document.getElementById('results-count').innerHTML = '搜尋中...';
             updateMapCenterAndCircle(lat, lng);
 
-            // 🚀 終極效能優化：伺服器端「方形網格」加速法 (Bounding Box)
             // 1. 運用數學公式，在前端先算好 500 公尺的「方形經緯度邊界」
             const R = 6378137; // 地球半徑 (公尺)
             const latDelta = (SEARCH_RADIUS / R) * (180 / Math.PI);
@@ -351,33 +350,20 @@
             const west = lng - lngDelta;
             const east = lng + lngDelta;
 
-            // 2. 查詢語法中，將耗時的 8 次 (around) 圓形運算，改成 1 次全域方形 [bbox] 極速查詢！
-            // 伺服器只需做簡單的網格撈取，大幅降低伺服器負載。多抓出來的四個角角，會在稍後的 displayPlaces 精確過濾掉。
-            const query = `
-                [out:json][timeout:10][bbox:${south},${west},${north},${east}];
-                (
-                  nw["amenity"="restaurant"];
-                  nw["amenity"="cafe"];
-                  nw["amenity"="fast_food"];
-                  nw["amenity"="food_court"];
-                  nw["amenity"="parking"];
-                  nw["amenity"="fuel"];
-                  nw["shop"="convenience"];
-                  nw["amenity"="toilets"];
-                );
-                out center qt;
-            `;
+            // 2. 查詢語法 (縮短 timeout 時間，因為使用 GET 若有快取應該要秒回)
+            const query = `[out:json][timeout:8][bbox:${south},${west},${north},${east}];(nw["amenity"="restaurant"];nw["amenity"="cafe"];nw["amenity"="fast_food"];nw["amenity"="food_court"];nw["amenity"="parking"];nw["amenity"="fuel"];nw["shop"="convenience"];nw["amenity"="toilets"];);out center qt;`;
 
+            // 擴充備援清單，包含亞洲與歐洲節點
             const endpoints = [
+                'https://overpass.kumi.systems/api/interpreter',    // 移到首位，此節點通常在台灣/亞洲最快
                 'https://overpass-api.de/api/interpreter',         
                 'https://lz4.overpass-api.de/api/interpreter',     
                 'https://z.overpass-api.de/api/interpreter',       
-                'https://overpass.kumi.systems/api/interpreter',
                 'https://overpass.openstreetmap.fr/api/interpreter' 
             ];
 
             let responseText = null;
-            const maxRetries = 3; 
+            const maxRetries = 2; 
 
             try {
                 for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -389,13 +375,16 @@
 
                     const fetchPromises = endpoints.map(async (apiUrl) => {
                         const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 10000); 
+                        const timeoutId = setTimeout(() => controller.abort(), 8000); 
 
                         try {
-                            const response = await fetch(apiUrl, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                                body: 'data=' + encodeURIComponent(query),
+                            // 🚀 終極效能優化：改用 HTTP GET 請求！
+                            // 將查詢字串直接編碼在 URL 中。完全避開瀏覽器的 CORS 預檢 (OPTIONS)，並能觸發 CDN 快取機制。
+                            const requestUrl = `${apiUrl}?data=${encodeURIComponent(query)}`;
+                            
+                            const response = await fetch(requestUrl, {
+                                method: 'GET',
+                                // 不設定任何 Headers，保持請求最純淨，確保被視為 Simple Request
                                 signal: controller.signal 
                             });
 
