@@ -248,7 +248,6 @@
         const toggleBtnText = document.getElementById('mobile-toggle-text');
 
         function initMap() {
-            // 🚀 效能優化：強制使用 Canvas 引擎取代 SVG 來繪製範圍圈，大幅降低手機 CPU 負擔
             map = L.map('map', { preferCanvas: true }).setView([DEFAULT_LAT, DEFAULT_LNG], 15);
             
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -341,23 +340,34 @@
             document.getElementById('results-count').innerHTML = '搜尋中...';
             updateMapCenterAndCircle(lat, lng);
 
-            // 🚀 效能優化：捨棄正規表示式(~)，改用精確比對(=)；捨棄 Relation(r)，並加入 qt (QuadTile地理網格排序)
+            // 🚀 終極效能優化：伺服器端「方形網格」加速法 (Bounding Box)
+            // 1. 運用數學公式，在前端先算好 500 公尺的「方形經緯度邊界」
+            const R = 6378137; // 地球半徑 (公尺)
+            const latDelta = (SEARCH_RADIUS / R) * (180 / Math.PI);
+            const lngDelta = (SEARCH_RADIUS / R) * (180 / Math.PI) / Math.cos(lat * Math.PI / 180);
+            
+            const south = lat - latDelta;
+            const north = lat + latDelta;
+            const west = lng - lngDelta;
+            const east = lng + lngDelta;
+
+            // 2. 查詢語法中，將耗時的 8 次 (around) 圓形運算，改成 1 次全域方形 [bbox] 極速查詢！
+            // 伺服器只需做簡單的網格撈取，大幅降低伺服器負載。多抓出來的四個角角，會在稍後的 displayPlaces 精確過濾掉。
             const query = `
-                [out:json][timeout:10];
+                [out:json][timeout:10][bbox:${south},${west},${north},${east}];
                 (
-                  nw["amenity"="restaurant"](around:${SEARCH_RADIUS},${lat},${lng});
-                  nw["amenity"="cafe"](around:${SEARCH_RADIUS},${lat},${lng});
-                  nw["amenity"="fast_food"](around:${SEARCH_RADIUS},${lat},${lng});
-                  nw["amenity"="food_court"](around:${SEARCH_RADIUS},${lat},${lng});
-                  nw["amenity"="parking"](around:${SEARCH_RADIUS},${lat},${lng});
-                  nw["amenity"="fuel"](around:${SEARCH_RADIUS},${lat},${lng});
-                  nw["shop"="convenience"](around:${SEARCH_RADIUS},${lat},${lng});
-                  nw["amenity"="toilets"](around:${SEARCH_RADIUS},${lat},${lng});
+                  nw["amenity"="restaurant"];
+                  nw["amenity"="cafe"];
+                  nw["amenity"="fast_food"];
+                  nw["amenity"="food_court"];
+                  nw["amenity"="parking"];
+                  nw["amenity"="fuel"];
+                  nw["shop"="convenience"];
+                  nw["amenity"="toilets"];
                 );
                 out center qt;
             `;
 
-            // 擴充備援清單，加入更多國外的開源分流節點
             const endpoints = [
                 'https://overpass-api.de/api/interpreter',         
                 'https://lz4.overpass-api.de/api/interpreter',     
@@ -370,7 +380,6 @@
             const maxRetries = 3; 
 
             try {
-                // 自動重試迴圈 (Exponential Backoff)
                 for (let attempt = 1; attempt <= maxRetries; attempt++) {
                     if (attempt > 1) {
                         const loadingText = document.getElementById('loading-text');
@@ -380,7 +389,7 @@
 
                     const fetchPromises = endpoints.map(async (apiUrl) => {
                         const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 12000); 
+                        const timeoutId = setTimeout(() => controller.abort(), 10000); 
 
                         try {
                             const response = await fetch(apiUrl, {
@@ -409,7 +418,6 @@
                     });
 
                     try {
-                        // 並行競速
                         responseText = await Promise.any(fetchPromises);
                         break; 
                     } catch (aggregateError) {
@@ -528,7 +536,6 @@
             let foundCount = { food: 0, parking: 0, gas: 0, store: 0, toilet: 0 };
             const userLatLng = L.latLng(userLat, userLng);
 
-            // 🚀 效能優化：使用 DocumentFragment 進行記憶體中的批量渲染，減少畫面卡頓
             const fragment = document.createDocumentFragment();
 
             const createIcon = (color, iconClass) => L.divIcon({
@@ -554,6 +561,7 @@
             combinedData.sort((a, b) => a.distance - b.distance);
 
             combinedData.forEach((item) => {
+                // 前端再次確認：雖然伺服器丟了一個方形區域給我們，但我們在這裡精確濾掉 500m 圓形以外的雜訊！
                 if (item.distance <= SEARCH_RADIUS) {
                     if (item.category === 'food') foundCount.food++;
                     else if (item.category === 'parking') foundCount.parking++;
@@ -642,12 +650,10 @@
                         }
                     });
                     
-                    // 🚀 效能優化：存入 Fragment
                     fragment.appendChild(card);
                 }
             });
 
-            // 🚀 效能優化：一次性渲染
             restaurantListEl.appendChild(fragment);
 
             const total = Object.values(foundCount).reduce((a, b) => a + b, 0);
