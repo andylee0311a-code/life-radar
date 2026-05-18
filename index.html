@@ -4,6 +4,17 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>生活通雷達 - 500公尺內的生活便利地圖</title>
+    
+    <!-- 🚀 效能優化：預先建立圖磚與 API 伺服器的連線 (Preconnect) -->
+    <link rel="preconnect" href="https://tile.openstreetmap.org" crossorigin>
+    <link rel="preconnect" href="https://overpass-api.de" crossorigin>
+    <link rel="preconnect" href="https://lz4.overpass-api.de" crossorigin>
+    <link rel="preconnect" href="https://z.overpass-api.de" crossorigin>
+    <link rel="preconnect" href="https://overpass.kumi.systems" crossorigin>
+    <link rel="preconnect" href="https://overpass.openstreetmap.fr" crossorigin>
+    <link rel="preconnect" href="https://unpkg.com" crossorigin>
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+
     <!-- 雷達圖示 -->
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📡</text></svg>">
     
@@ -26,31 +37,29 @@
 
         /* --- 手機版切換核心邏輯 --- */
         @media (max-width: 767px) {
-            /* 狀態：顯示地圖 */
             #app-container.show-map #mobile-list-container {
                 display: none;
             }
             #app-container.show-map #map-container {
                 display: block;
-                flex: 1; /* 地圖拿走所有剩餘空間 */
+                flex: 1;
             }
             #app-container.show-map #sidebar {
                 flex: none; 
-                max-height: 50vh; /* 地圖模式下，面板最多佔 50% 高度 */
+                max-height: 50vh;
             }
 
-            /* 狀態：顯示列表 */
             #app-container.show-list #mobile-list-container {
                 display: block;
-                flex: 1; /* 列表拿走所有剩餘空間 */
-                min-height: 0; /* 關鍵修正：確保 iOS/Safari 上內部捲動軸正常運作 */
+                flex: 1;
+                min-height: 0;
             }
             #app-container.show-list #map-container {
                 display: none;
             }
             #app-container.show-list #sidebar {
                 flex: 1; 
-                max-height: 100vh; /* 關鍵修正：列表模式下，解除高度限制，完整填滿螢幕！ */
+                max-height: 100vh;
             }
         }
 
@@ -62,12 +71,12 @@
                 max-height: 100vh;
             }
             #mobile-list-container {
-                display: block !important; /* 桌面版永遠顯示列表 */
+                display: block !important;
                 flex: 1;
                 min-height: 0;
             }
             #map-container {
-                display: block !important; /* 桌面版永遠顯示地圖 */
+                display: block !important;
                 flex: 1;
             }
         }
@@ -80,7 +89,7 @@
             z-index: 10;
             display: flex;
             flex-direction: column;
-            transition: max-height 0.3s ease-in-out; /* 讓切換高度時比較平滑 */
+            transition: max-height 0.3s ease-in-out;
         }
 
         .header {
@@ -239,7 +248,9 @@
         const toggleBtnText = document.getElementById('mobile-toggle-text');
 
         function initMap() {
-            map = L.map('map').setView([DEFAULT_LAT, DEFAULT_LNG], 15);
+            // 🚀 效能優化：強制使用 Canvas 引擎取代 SVG 來繪製範圍圈，大幅降低手機 CPU 負擔
+            map = L.map('map', { preferCanvas: true }).setView([DEFAULT_LAT, DEFAULT_LNG], 15);
+            
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             }).addTo(map);
@@ -330,10 +341,14 @@
             document.getElementById('results-count').innerHTML = '搜尋中...';
             updateMapCenterAndCircle(lat, lng);
 
+            // 🚀 效能優化：捨棄正規表示式(~)，改用精確比對(=)；捨棄 Relation(r)，並加入 qt (QuadTile地理網格排序)
             const query = `
                 [out:json][timeout:10];
                 (
-                  nw["amenity"~"restaurant|cafe|fast_food|food_court"](around:${SEARCH_RADIUS},${lat},${lng});
+                  nw["amenity"="restaurant"](around:${SEARCH_RADIUS},${lat},${lng});
+                  nw["amenity"="cafe"](around:${SEARCH_RADIUS},${lat},${lng});
+                  nw["amenity"="fast_food"](around:${SEARCH_RADIUS},${lat},${lng});
+                  nw["amenity"="food_court"](around:${SEARCH_RADIUS},${lat},${lng});
                   nw["amenity"="parking"](around:${SEARCH_RADIUS},${lat},${lng});
                   nw["amenity"="fuel"](around:${SEARCH_RADIUS},${lat},${lng});
                   nw["shop"="convenience"](around:${SEARCH_RADIUS},${lat},${lng});
@@ -346,16 +361,16 @@
             const endpoints = [
                 'https://overpass-api.de/api/interpreter',         
                 'https://lz4.overpass-api.de/api/interpreter',     
-                'https://z.overpass-api.de/api/interpreter',       // 新增德國 z 節點
+                'https://z.overpass-api.de/api/interpreter',       
                 'https://overpass.kumi.systems/api/interpreter',
-                'https://overpass.openstreetmap.fr/api/interpreter' // 新增法國節點 (穩定度極高)
+                'https://overpass.openstreetmap.fr/api/interpreter' 
             ];
 
             let responseText = null;
-            const maxRetries = 3; // 設定最高重試次數為 3 次
+            const maxRetries = 3; 
 
             try {
-                // 【終極升級】：自動重試迴圈 (Exponential Backoff)
+                // 自動重試迴圈 (Exponential Backoff)
                 for (let attempt = 1; attempt <= maxRetries; attempt++) {
                     if (attempt > 1) {
                         const loadingText = document.getElementById('loading-text');
@@ -365,7 +380,6 @@
 
                     const fetchPromises = endpoints.map(async (apiUrl) => {
                         const controller = new AbortController();
-                        // 稍微放寬到 12 秒，給較遠的國外伺服器一點彈性
                         const timeoutId = setTimeout(() => controller.abort(), 12000); 
 
                         try {
@@ -395,14 +409,13 @@
                     });
 
                     try {
-                        // Promise.any 會同時發跑所有請求，並只採用「第一個成功」的結果！
+                        // 並行競速
                         responseText = await Promise.any(fetchPromises);
-                        break; // 如果成功拿到資料，立刻跳出重試迴圈！
+                        break; 
                     } catch (aggregateError) {
                         if (attempt === maxRetries) {
                             throw new Error('所有公開地圖伺服器目前都過載，請稍後再試。');
                         }
-                        // 失敗後，等待 (attempt * 1.5) 秒再進行下一次全體請求 (指數退避)
                         await new Promise(resolve => setTimeout(resolve, attempt * 1500));
                     }
                 }
@@ -515,7 +528,7 @@
             let foundCount = { food: 0, parking: 0, gas: 0, store: 0, toilet: 0 };
             const userLatLng = L.latLng(userLat, userLng);
 
-            // 【效能優化 3】建立虛擬文件碎片 (DocumentFragment)，批量渲染卡片
+            // 🚀 效能優化：使用 DocumentFragment 進行記憶體中的批量渲染，減少畫面卡頓
             const fragment = document.createDocumentFragment();
 
             const createIcon = (color, iconClass) => L.divIcon({
@@ -629,12 +642,12 @@
                         }
                     });
                     
-                    // 【效能優化 3】將卡片先存入記憶體碎片中，不直接觸發畫面重繪
+                    // 🚀 效能優化：存入 Fragment
                     fragment.appendChild(card);
                 }
             });
 
-            // 【效能優化 3】迴圈結束後，一次性將數十張卡片推上畫面，瞬間完成！
+            // 🚀 效能優化：一次性渲染
             restaurantListEl.appendChild(fragment);
 
             const total = Object.values(foundCount).reduce((a, b) => a + b, 0);
