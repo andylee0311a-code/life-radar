@@ -63,14 +63,15 @@
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
 
+        /* 🚀 修改卡片樣式：移除內距，讓照片能貼齊邊緣 */
         .restaurant-card {
             background: white;
             border: 1px solid #e5e7eb;
-            border-radius: 0.5rem;
-            padding: 1rem;
+            border-radius: 0.75rem; /* 稍微圓角一點 */
             margin-bottom: 1rem;
             transition: transform 0.2s, box-shadow 0.2s;
             cursor: pointer;
+            overflow: hidden; /* 確保照片不會超出圓角 */
         }
 
         .restaurant-card:hover {
@@ -261,7 +262,6 @@
             isLoading = true;
             locateBtn.disabled = true;
             
-            // 【安全保留】本機快取機制，第二次點擊瞬間秒開
             const cacheKey = `osm_cache_${lat.toFixed(3)}_${lng.toFixed(3)}`;
             const cachedData = sessionStorage.getItem(cacheKey);
 
@@ -290,7 +290,6 @@
             document.getElementById('results-count').innerHTML = '搜尋中...';
             updateMapCenterAndCircle(lat, lng);
 
-            // 🚀 回歸最穩定、絕對不會出錯的查詢語法 (移除容易報錯的 bbox 與 qt 參數)
             const query = `[out:json][timeout:15];
 (
   nw["amenity"="restaurant"](around:${SEARCH_RADIUS},${lat},${lng});
@@ -304,17 +303,15 @@
 );
 out center;`;
 
-            // 🚀 回歸最標準的伺服器接力陣列 (依序嘗試，絕不發動併發攻擊)
             const endpoints = [
-                'https://overpass.kumi.systems/api/interpreter', // 台灣最穩節點
-                'https://overpass-api.de/api/interpreter',       // 德國官方主機
-                'https://lz4.overpass-api.de/api/interpreter'    // 德國官方備援
+                'https://overpass.kumi.systems/api/interpreter',
+                'https://overpass-api.de/api/interpreter',       
+                'https://lz4.overpass-api.de/api/interpreter'    
             ];
 
             let data = null;
 
             try {
-                // 【核心修正】：乖乖排隊的循序嘗試。不並發、不設強制斬斷時間，讓連線自然完成
                 for (let i = 0; i < endpoints.length; i++) {
                     const apiUrl = endpoints[i];
                     const loadingText = document.getElementById('loading-text');
@@ -322,35 +319,28 @@ out center;`;
                     if (loadingText) {
                         loadingText.textContent = `伺服器連線中 (${i + 1}/${endpoints.length})...`;
                     }
-                    console.log(`[嘗試連線] ${apiUrl}`);
 
                     try {
                         const response = await fetch(apiUrl, {
                             method: 'POST',
                             headers: { 
                                 'Content-Type': 'application/x-www-form-urlencoded',
-                                'Accept': 'application/json' // 【關鍵修正】明確宣告收 JSON，消滅 406 錯誤！
+                                'Accept': 'application/json' 
                             },
                             body: 'data=' + encodeURIComponent(query)
                         });
 
                         if (response.ok) {
                             data = await response.json();
-                            console.log(`✅ [連線成功] 已從 ${apiUrl} 取得資料`);
-                            break; // 成功拿到資料，跳出迴圈！
-                        } else {
-                            console.warn(`⚠️ [伺服器報錯] ${apiUrl} 狀態碼: ${response.status}`);
-                        }
+                            break; 
+                        } 
                     } catch (err) {
-                        console.warn(`❌ [網路錯誤] ${apiUrl} 無法連線`, err);
+                        console.warn(`[網路錯誤] ${apiUrl} 無法連線`, err);
                     }
                 }
                 
-                if (!data) {
-                    throw new Error('所有公開地圖伺服器皆忙碌中。');
-                }
+                if (!data) throw new Error('所有公開地圖伺服器皆忙碌中。');
 
-                // 將成功的資料存入快取
                 sessionStorage.setItem(cacheKey, JSON.stringify(data)); 
                 
                 parseOverpassData(data.elements);
@@ -459,6 +449,15 @@ out center;`;
                 public_toilet: createIcon('#14b8a6', 'fa-solid fa-restroom')
             };
 
+            // 🚀 視覺升級 1：準備高品質的分類情境示意圖 (使用 Unsplash 穩定 ID)
+            const categoryImages = {
+                'food': 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=200&h=200&fit=crop&q=80',
+                'parking': 'https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=200&h=200&fit=crop&q=80',
+                'gas_station': 'https://images.unsplash.com/photo-1505705694340-019e1e335916?w=200&h=200&fit=crop&q=80',
+                'convenience_store': 'https://images.unsplash.com/photo-1578916171728-46686eac8d58?w=200&h=200&fit=crop&q=80',
+                'public_toilet': 'https://images.unsplash.com/photo-1550989460-0adf9ea622e2?w=200&h=200&fit=crop&q=80'
+            };
+
             let combinedData = [];
             const addData = (arr, cat) => {
                 if (currentFilter === 'all' || currentFilter === cat) combinedData = combinedData.concat(arr.map(item => ({...item, category: cat})));
@@ -478,72 +477,86 @@ out center;`;
                     else if (item.category === 'public_toilet') foundCount.toilet++;
                     
                     const marker = L.marker([item.lat, item.lng], {icon: icons[item.category]}).addTo(markersGroup);
-                    let popupContent, cardContent;
-                    const gmapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${item.lat},${item.lng}`;
                     
-                    const navBtnHtml = `
-                        <a href="${gmapsUrl}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation();" 
-                           class="mt-3 flex items-center justify-center w-full py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 hover:text-blue-700 font-bold rounded-lg text-sm transition-colors border border-blue-200">
-                            <i class="fa-solid fa-diamond-turn-right mr-2"></i> 開始導航
-                        </a>`;
-                        
-                    const popupNavBtnHtml = `
-                        <div style="margin-top: 10px; text-align: center;">
-                            <a href="${gmapsUrl}" target="_blank" rel="noopener noreferrer" 
-                               style="display: block; background: #3b82f6; color: white; padding: 6px 10px; text-decoration: none; border-radius: 4px; font-size: 13px; font-weight: bold;">
-                                <i class="fa-solid fa-diamond-turn-right"></i> 開始導航
-                            </a>
-                        </div>`;
+                    // URLs
+                    const gmapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${item.lat},${item.lng}`;
+                    // 🚀 視覺升級 2：建構精確的 Google 街景任意門 URL
+                    const streetViewUrl = `https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${item.lat},${item.lng}`;
+                    
+                    let catLabel = '';
+                    let tagsHtml = '';
+                    let popupColor = '#3b82f6';
 
                     if (item.category === 'food') {
-                        popupContent = `<div class="custom-popup"><h3 style="color:#ff5a5f;">${item.name}</h3><p>${item.type}</p>${popupNavBtnHtml}</div>`;
-                        cardContent = `<h3 class="text-lg font-bold text-gray-800"><i class="fa-solid fa-utensils text-red-400 mr-1"></i> ${item.name}</h3>
-                                       <div class="flex justify-between items-center mt-2 text-sm text-gray-600">
-                                            <span><i class="fa-solid fa-person-walking"></i> ${Math.round(item.distance)} m</span>
-                                            <span class="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">${item.type}</span>
-                                       </div>` + navBtnHtml;
+                        catLabel = item.type;
+                        popupColor = '#ff5a5f';
                     } else if (item.category === 'parking') {
-                        popupContent = `<div class="custom-popup"><h3 style="color:#3b82f6;">${item.name}</h3>${popupNavBtnHtml}</div>`;
-                        cardContent = `<h3 class="text-lg font-bold text-gray-800"><i class="fa-solid fa-square-parking text-blue-500 mr-1"></i> ${item.name}</h3>
-                                       <div class="flex justify-between items-center mt-2 text-sm text-gray-600">
-                                            <span><i class="fa-solid fa-person-walking"></i> ${Math.round(item.distance)} m</span>
-                                            <span class="text-xs text-blue-600 font-semibold bg-blue-50 px-2 py-1 rounded border border-blue-100">${item.price}</span>
-                                       </div>` + navBtnHtml;
+                        catLabel = '停車場';
+                        tagsHtml = `<span class="inline-block px-1.5 py-0.5 bg-blue-50 text-blue-600 text-[10px] font-semibold rounded border border-blue-100">${item.price}</span>`;
+                        popupColor = '#3b82f6';
                     } else if (item.category === 'gas_station') {
-                        popupContent = `<div class="custom-popup"><h3 style="color:#f97316;">${item.name}</h3>${popupNavBtnHtml}</div>`;
-                        cardContent = `<h3 class="text-lg font-bold text-gray-800"><i class="fa-solid fa-gas-pump text-orange-500 mr-1"></i> ${item.name}</h3>
-                                       <div class="flex justify-between items-center mt-2 text-sm text-gray-600">
-                                            <span><i class="fa-solid fa-person-walking"></i> ${Math.round(item.distance)} m</span>
-                                            <span class="text-xs text-orange-600 font-semibold">${item.hasSelfService ? '標示自助加油' : ''}</span>
-                                       </div>` + navBtnHtml;
+                        catLabel = '加油站';
+                        if (item.hasSelfService) tagsHtml = `<span class="inline-block px-1.5 py-0.5 bg-orange-50 text-orange-600 text-[10px] font-semibold rounded border border-orange-100">自助加油</span>`;
+                        popupColor = '#f97316';
                     } else if (item.category === 'convenience_store') {
-                        popupContent = `<div class="custom-popup"><h3 style="color:#22c55e;">${item.name}</h3>${popupNavBtnHtml}</div>`;
-                        cardContent = `
-                            <div class="flex justify-between items-start">
-                                <h3 class="text-lg font-bold text-gray-800"><i class="fa-solid fa-store text-green-500 mr-1"></i> ${item.name}</h3>
-                            </div>
-                            <div class="flex gap-2 mt-2">
-                                <span class="text-xs font-semibold px-2 py-1 rounded ${item.hasToilet ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'}">
-                                    <i class="fa-solid ${item.hasToilet ? 'fa-check' : 'fa-xmark'}"></i> 廁所
-                                </span>
-                                <span class="text-xs font-semibold px-2 py-1 rounded ${item.hasATM ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-400'}">
-                                    <i class="fa-solid ${item.hasATM ? 'fa-check' : 'fa-xmark'}"></i> ATM
-                                </span>
-                            </div>
-                            <div class="flex justify-between items-center mt-3 text-sm text-gray-600">
-                                <span><i class="fa-solid fa-person-walking"></i> ${Math.round(item.distance)} m</span>
-                            </div>
-                        ` + navBtnHtml;
+                        catLabel = '超商';
+                        tagsHtml = `
+                            ${item.hasToilet ? '<span class="inline-block px-1.5 py-0.5 bg-green-50 text-green-600 text-[10px] font-semibold rounded border border-green-100">廁所</span>' : ''}
+                            ${item.hasATM ? '<span class="inline-block px-1.5 py-0.5 bg-indigo-50 text-indigo-600 text-[10px] font-semibold rounded border border-indigo-100">ATM</span>' : ''}
+                        `;
+                        popupColor = '#22c55e';
                     } else if (item.category === 'public_toilet') {
-                        popupContent = `<div class="custom-popup"><h3 style="color:#14b8a6;">${item.name}</h3>${popupNavBtnHtml}</div>`;
-                        cardContent = `<h3 class="text-lg font-bold text-gray-800"><i class="fa-solid fa-restroom text-teal-500 mr-1"></i> ${item.name}</h3>
-                                       <div class="flex justify-between items-center mt-2 text-sm text-gray-600">
-                                            <span><i class="fa-solid fa-person-walking"></i> ${Math.round(item.distance)} m</span>
-                                            <span class="text-xs text-teal-600 font-semibold bg-teal-50 px-2 py-1 rounded border border-teal-100">${item.isAccessible ? '<i class="fa-solid fa-wheelchair"></i> 無障礙' : '一般公廁'}</span>
-                                       </div>` + navBtnHtml;
+                        catLabel = '公廁';
+                        if (item.isAccessible) tagsHtml = `<span class="inline-block px-1.5 py-0.5 bg-teal-50 text-teal-600 text-[10px] font-semibold rounded border border-teal-100"><i class="fa-solid fa-wheelchair"></i> 無障礙</span>`;
+                        popupColor = '#14b8a6';
                     }
 
+                    // 重新設計氣泡內容
+                    const popupContent = `
+                        <div class="custom-popup text-center">
+                            <h3 style="color:${popupColor}; margin-bottom: 4px; font-weight:bold;">${item.name}</h3>
+                            <div class="flex gap-2 justify-center mt-2">
+                                <a href="${streetViewUrl}" target="_blank" style="background:#f3f4f6; color:#374151; padding:4px 8px; border-radius:4px; text-decoration:none; font-size:12px; font-weight:bold;"><i class="fa-solid fa-street-view"></i> 街景</a>
+                                <a href="${gmapsUrl}" target="_blank" style="background:${popupColor}; color:white; padding:4px 8px; border-radius:4px; text-decoration:none; font-size:12px; font-weight:bold;"><i class="fa-solid fa-diamond-turn-right"></i> 導航</a>
+                            </div>
+                        </div>
+                    `;
                     marker.bindPopup(popupContent);
+
+                    // 🚀 視覺升級 3：打造左圖右文的 Airbnb 風格卡片
+                    const cardContent = `
+                        <div class="flex h-full">
+                            <!-- 圖片區塊 -->
+                            <div class="w-1/3 min-w-[100px] bg-gray-200 relative">
+                                <img src="${categoryImages[item.category]}" loading="lazy" class="absolute inset-0 w-full h-full object-cover" alt="示意圖">
+                                <div class="absolute top-2 left-2 bg-white/90 backdrop-blur-sm px-1.5 py-0.5 rounded text-[10px] font-bold text-gray-700 shadow-sm">
+                                    ${catLabel}
+                                </div>
+                            </div>
+                            
+                            <!-- 文字與按鈕區塊 -->
+                            <div class="w-2/3 p-3 flex flex-col justify-between">
+                                <div>
+                                    <h3 class="text-base font-bold text-gray-800 leading-tight mb-1 truncate">${item.name}</h3>
+                                    <div class="flex items-center text-xs text-gray-500 mb-1.5">
+                                        <i class="fa-solid fa-person-walking mr-1"></i> 距離 ${Math.round(item.distance)} m
+                                    </div>
+                                    <div class="flex flex-wrap gap-1">
+                                        ${tagsHtml}
+                                    </div>
+                                </div>
+                                <div class="flex gap-2 mt-3">
+                                    <a href="${streetViewUrl}" target="_blank" onclick="event.stopPropagation();" class="flex-1 py-1.5 bg-gray-100 text-gray-700 hover:bg-gray-200 font-bold rounded text-center text-xs transition-colors">
+                                        <i class="fa-solid fa-street-view text-blue-500"></i> 街景
+                                    </a>
+                                    <a href="${gmapsUrl}" target="_blank" onclick="event.stopPropagation();" class="flex-1 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 font-bold rounded text-center text-xs transition-colors">
+                                        <i class="fa-solid fa-diamond-turn-right"></i> 導航
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+
                     const card = document.createElement('div');
                     card.className = 'restaurant-card shadow-sm hover:shadow-md';
                     card.innerHTML = cardContent;
