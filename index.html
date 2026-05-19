@@ -5,10 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>生活通雷達 - 500公尺內的生活便利地圖</title>
     
+    <!-- 預先建立連線，包含全新精選的獨立節點 -->
     <link rel="preconnect" href="https://tile.openstreetmap.org" crossorigin>
-    <link rel="preconnect" href="https://overpass-api.de" crossorigin>
-    <link rel="preconnect" href="https://lz4.overpass-api.de" crossorigin>
+    <link rel="preconnect" href="https://overpass.kumi.systems" crossorigin>
     <link rel="preconnect" href="https://overpass.openstreetmap.fr" crossorigin>
+    <link rel="preconnect" href="https://overpass.openstreetmap.ru" crossorigin>
+    <link rel="preconnect" href="https://overpass-api.de" crossorigin>
     <link rel="preconnect" href="https://unpkg.com" crossorigin>
     <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
 
@@ -260,7 +262,6 @@
             isLoading = true;
             locateBtn.disabled = true;
             
-            // 空間記憶體快取 (約 111 公尺網格)
             const cacheKey = `osm_cache_${lat.toFixed(3)}_${lng.toFixed(3)}`;
             const cachedData = sessionStorage.getItem(cacheKey);
 
@@ -282,7 +283,7 @@
             restaurantListEl.innerHTML = `
                 <div class="text-center text-gray-500 mt-10">
                     <div class="loader"></div>
-                    <p id="loading-text" class="mt-4 text-sm font-semibold text-blue-600">正在掃描方圓 ${SEARCH_RADIUS} 公尺的設施...</p>
+                    <p id="loading-text" class="mt-4 text-sm font-semibold text-blue-600">正在極速掃描周邊設施...</p>
                 </div>
             `;
             markersGroup.clearLayers();
@@ -292,70 +293,60 @@
             const R = 6378137; 
             const latDelta = (SEARCH_RADIUS / R) * (180 / Math.PI);
             const lngDelta = (SEARCH_RADIUS / R) * (180 / Math.PI) / Math.cos(lat * Math.PI / 180);
-            const south = lat - latDelta; const north = lat + latDelta;
-            const west = lng - lngDelta; const east = lng + lngDelta;
+            
+            // 🚀 極致快取優化：將邊界「四捨五入」到小數點第 3 位 (約 100m 網格)
+            // 這能讓全世界的邊緣伺服器 (CDN) 大幅提升快取命中率！
+            const south = (lat - latDelta).toFixed(3); 
+            const north = (lat + latDelta).toFixed(3);
+            const west = (lng - lngDelta).toFixed(3); 
+            const east = (lng + lngDelta).toFixed(3);
 
-            // 嚴格限制 Timeout 為 5 秒，告訴伺服器「太久就算了我不等了」
             const query = `[out:json][timeout:5][bbox:${south},${west},${north},${east}];(nw["amenity"="restaurant"];nw["amenity"="cafe"];nw["amenity"="fast_food"];nw["amenity"="food_court"];nw["amenity"="parking"];nw["amenity"="fuel"];nw["shop"="convenience"];nw["amenity"="toilets"];);out center qt;`;
 
-            // 【架構修正】：不使用並發攻擊，改用「紳士接力賽」
+            // 🚀 獨立節點並行競速：這些是互相完全獨立的伺服器，同時敲門不會被當作駭客封鎖！
             const endpoints = [
-                'https://overpass-api.de/api/interpreter',         // 官方主節點
-                'https://overpass.openstreetmap.fr/api/interpreter', // 法國節點 (通常最穩)
-                'https://lz4.overpass-api.de/api/interpreter'      // 官方備援
+                'https://overpass.kumi.systems/api/interpreter',       // 台灣節點 (亞洲首選)
+                'https://overpass.openstreetmap.fr/api/interpreter',   // 法國節點 (獨立、穩定)
+                'https://overpass.openstreetmap.ru/api/interpreter',   // 俄羅斯節點 (獨立)
+                'https://overpass-api.de/api/interpreter'              // 官方主節點 (保底)
             ];
 
-            let responseText = null;
-
             try {
-                // 依序嘗試伺服器
-                for (let i = 0; i < endpoints.length; i++) {
-                    const apiUrl = endpoints[i];
-                    const loadingText = document.getElementById('loading-text');
-                    
-                    if (i > 0 && loadingText) {
-                        loadingText.textContent = `切換備援伺服器 (${i + 1}/${endpoints.length})...`;
-                        console.log(`切換至備援伺服器: ${apiUrl}`);
-                    }
-
+                // 發起並發請求競速！
+                const fetchPromises = endpoints.map(async (apiUrl) => {
                     const controller = new AbortController();
-                    // 嚴格 4.5 秒斬斷連線！絕不死等
-                    const timeoutId = setTimeout(() => controller.abort(), 4500); 
+                    // 只要超過 5 秒沒回，直接無情切斷，絕不卡住畫面
+                    const timeoutId = setTimeout(() => controller.abort(), 5000); 
 
                     try {
-                        // 改回 POST 請求：這才是 Overpass 官方最標準且不會因網址過長出錯的方式
-                        const response = await fetch(apiUrl, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                            body: 'data=' + encodeURIComponent(query),
+                        // 🚀 改回純粹的 GET 請求：零預檢 (No Preflight OPTIONS)，極大化 CDN 網格快取效益
+                        const requestUrl = `${apiUrl}?data=${encodeURIComponent(query)}`;
+                        const response = await fetch(requestUrl, {
+                            method: 'GET',
                             signal: controller.signal 
                         });
 
                         clearTimeout(timeoutId); 
 
-                        if (response.ok) {
-                            const text = await response.text();
-                            if (!text.includes('<html') && !text.includes('<!DOCTYPE')) {
-                                responseText = text;
-                                console.log(`🏆 成功從 ${apiUrl} 取得資料`);
-                                break; // 成功拿到資料，立刻跳出迴圈！
-                            }
-                        }
+                        if (!response.ok) throw new Error(`Status: ${response.status}`);
+                        const text = await response.text();
+                        if (text.includes('<html') || text.includes('<!DOCTYPE')) throw new Error('HTML Error');
+                        
+                        console.log(`🏆 極速勝利節點: ${apiUrl}`);
+                        return text; 
                     } catch (err) {
                         clearTimeout(timeoutId);
-                        console.warn(`${apiUrl} 無法回應或超時，自動跳過`);
-                        // 發生錯誤不拋出，繼續迴圈嘗試下一個伺服器
+                        throw err; 
                     }
-                }
-                
-                if (!responseText) {
-                    throw new Error('所有公開地圖伺服器皆忙碌中。');
-                }
+                });
 
+                // Promise.any 會捕捉「最快回傳正確資料」的那個節點！
+                const responseText = await Promise.any(fetchPromises);
+                
                 let data;
                 try {
                     data = JSON.parse(responseText);
-                    sessionStorage.setItem(cacheKey, responseText); // 寫入快取
+                    sessionStorage.setItem(cacheKey, responseText); // 寫入記憶體快取
                 } catch (e) {
                     throw new Error('資料格式錯誤');
                 }
@@ -367,7 +358,7 @@
                 setTimeout(() => { statusMsg.classList.add('hidden'); }, 2000);
 
             } catch (error) {
-                console.error('API 請求失敗:', error);
+                console.error('所有 API 皆請求失敗:', error);
                 restaurantListEl.innerHTML = `
                     <div class="text-center text-red-500 mt-10">
                         <i class="fa-solid fa-triangle-exclamation text-4xl mb-3"></i>
