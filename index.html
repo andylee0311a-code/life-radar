@@ -303,12 +303,12 @@
 
             const query = `[out:json][timeout:5][bbox:${south},${west},${north},${east}];(nw["amenity"="restaurant"];nw["amenity"="cafe"];nw["amenity"="fast_food"];nw["amenity"="food_court"];nw["amenity"="parking"];nw["amenity"="fuel"];nw["shop"="convenience"];nw["amenity"="toilets"];);out center qt;`;
 
-            // 🚀 獨立節點並行競速：這些是互相完全獨立的伺服器，同時敲門不會被當作駭客封鎖！
+            // 🚀 剔除容易引發 CORS 防火牆阻擋的法國與俄羅斯節點
+            // 只保留對 CORS 最友善、最穩定的台灣 kumi 節點與官方德國節點
             const endpoints = [
-                'https://overpass.kumi.systems/api/interpreter',       // 台灣節點 (亞洲首選)
-                'https://overpass.openstreetmap.fr/api/interpreter',   // 法國節點 (獨立、穩定)
-                'https://overpass.openstreetmap.ru/api/interpreter',   // 俄羅斯節點 (獨立)
-                'https://overpass-api.de/api/interpreter'              // 官方主節點 (保底)
+                'https://overpass.kumi.systems/api/interpreter',       // 台灣節點 (亞洲首選，最快且最友善)
+                'https://overpass-api.de/api/interpreter',             // 官方主節點
+                'https://lz4.overpass-api.de/api/interpreter'          // 官方備援
             ];
 
             try {
@@ -319,10 +319,12 @@
                     const timeoutId = setTimeout(() => controller.abort(), 5000); 
 
                     try {
-                        // 🚀 改回純粹的 GET 請求：零預檢 (No Preflight OPTIONS)，極大化 CDN 網格快取效益
-                        const requestUrl = `${apiUrl}?data=${encodeURIComponent(query)}`;
-                        const response = await fetch(requestUrl, {
-                            method: 'GET',
+                        // 🚀 完美解法：改回 POST，並搭配 form-urlencoded。
+                        // 這在瀏覽器規範中屬於「簡單請求」，不會觸發耗時的 OPTIONS 預檢，又能完美避開伺服器的 URL 長度防火牆！
+                        const response = await fetch(apiUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: 'data=' + encodeURIComponent(query),
                             signal: controller.signal 
                         });
 
