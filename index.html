@@ -220,7 +220,7 @@
             if (isLoading) return; 
             if (window.innerWidth < 768) toggleMobileView('map');
             
-            statusMsg.textContent = '📡 正在極速定位中...';
+            statusMsg.textContent = '📡 正在快速定位中...';
             statusMsg.classList.remove('hidden', 'text-red-500');
             statusMsg.classList.add('text-gray-500');
             locateBtn.disabled = true;
@@ -261,6 +261,7 @@
             isLoading = true;
             locateBtn.disabled = true;
             
+            // 【安全保留】本機快取機制，第二次點擊瞬間秒開
             const cacheKey = `osm_cache_${lat.toFixed(3)}_${lng.toFixed(3)}`;
             const cachedData = sessionStorage.getItem(cacheKey);
 
@@ -282,80 +283,75 @@
             restaurantListEl.innerHTML = `
                 <div class="text-center text-gray-500 mt-10">
                     <div class="loader"></div>
-                    <p id="loading-text" class="mt-4 text-sm font-semibold text-blue-600">正在極速掃描周邊設施...</p>
+                    <p id="loading-text" class="mt-4 text-sm font-semibold text-blue-600">正在掃描周邊設施...</p>
                 </div>
             `;
             markersGroup.clearLayers();
             document.getElementById('results-count').innerHTML = '搜尋中...';
             updateMapCenterAndCircle(lat, lng);
 
-            const R = 6378137; 
-            const latDelta = (SEARCH_RADIUS / R) * (180 / Math.PI);
-            const lngDelta = (SEARCH_RADIUS / R) * (180 / Math.PI) / Math.cos(lat * Math.PI / 180);
-            
-            const south = (lat - latDelta).toFixed(3); 
-            const north = (lat + latDelta).toFixed(3);
-            const west = (lng - lngDelta).toFixed(3); 
-            const east = (lng + lngDelta).toFixed(3);
+            // 🚀 回歸最穩定、絕對不會出錯的查詢語法 (移除容易報錯的 bbox 與 qt 參數)
+            const query = `[out:json][timeout:15];
+(
+  nw["amenity"="restaurant"](around:${SEARCH_RADIUS},${lat},${lng});
+  nw["amenity"="cafe"](around:${SEARCH_RADIUS},${lat},${lng});
+  nw["amenity"="fast_food"](around:${SEARCH_RADIUS},${lat},${lng});
+  nw["amenity"="food_court"](around:${SEARCH_RADIUS},${lat},${lng});
+  nw["amenity"="parking"](around:${SEARCH_RADIUS},${lat},${lng});
+  nw["amenity"="fuel"](around:${SEARCH_RADIUS},${lat},${lng});
+  nw["shop"="convenience"](around:${SEARCH_RADIUS},${lat},${lng});
+  nw["amenity"="toilets"](around:${SEARCH_RADIUS},${lat},${lng});
+);
+out center;`;
 
-            const query = `[out:json][timeout:8][bbox:${south},${west},${north},${east}];(nw["amenity"="restaurant"];nw["amenity"="cafe"];nw["amenity"="fast_food"];nw["amenity"="food_court"];nw["amenity"="parking"];nw["amenity"="fuel"];nw["shop"="convenience"];nw["amenity"="toilets"];);out center qt;`;
+            // 🚀 回歸最標準的伺服器接力陣列 (依序嘗試，絕不發動併發攻擊)
+            const endpoints = [
+                'https://overpass.kumi.systems/api/interpreter', // 台灣最穩節點
+                'https://overpass-api.de/api/interpreter',       // 德國官方主機
+                'https://lz4.overpass-api.de/api/interpreter'    // 德國官方備援
+            ];
 
-            // 核心封裝：安全的 POST 請求，保證不觸發 OPTIONS 預檢，並嚴格控制超時
-            async function fetchOverpass(apiUrl, timeoutMs) {
-                const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), timeoutMs); 
-                try {
-                    const response = await fetch(apiUrl, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body: 'data=' + encodeURIComponent(query),
-                        signal: controller.signal 
-                    });
-                    clearTimeout(timeoutId); 
-                    if (!response.ok) throw new Error(`Status: ${response.status}`);
-                    const text = await response.text();
-                    if (text.includes('<html') || text.includes('<!DOCTYPE')) throw new Error('HTML Error');
-                    return text; 
-                } catch (err) {
-                    clearTimeout(timeoutId);
-                    throw err; 
-                }
-            }
-
-            let responseText = null;
+            let data = null;
 
             try {
-                // 🚀 第一階段：安全競速 (Safe Race)
-                // 只讓「完全獨立的台灣節點」與「德國官方主節點」互相競速。
-                // 因為分屬不同系統，這 100% 不會被當成 DDOS 攻擊而拋出 CORS 錯誤。
-                const round1Promises = [
-                    fetchOverpass('https://overpass.kumi.systems/api/interpreter', 8000),
-                    fetchOverpass('https://overpass-api.de/api/interpreter', 8000)
-                ];
+                // 【核心修正】：乖乖排隊的循序嘗試。不並發、不設強制斬斷時間，讓連線自然完成
+                for (let i = 0; i < endpoints.length; i++) {
+                    const apiUrl = endpoints[i];
+                    const loadingText = document.getElementById('loading-text');
+                    
+                    if (loadingText) {
+                        loadingText.textContent = `伺服器連線中 (${i + 1}/${endpoints.length})...`;
+                    }
+                    console.log(`[嘗試連線] ${apiUrl}`);
+
+                    try {
+                        const response = await fetch(apiUrl, {
+                            method: 'POST',
+                            headers: { 
+                                'Content-Type': 'application/x-www-form-urlencoded',
+                                'Accept': 'application/json' // 【關鍵修正】明確宣告收 JSON，消滅 406 錯誤！
+                            },
+                            body: 'data=' + encodeURIComponent(query)
+                        });
+
+                        if (response.ok) {
+                            data = await response.json();
+                            console.log(`✅ [連線成功] 已從 ${apiUrl} 取得資料`);
+                            break; // 成功拿到資料，跳出迴圈！
+                        } else {
+                            console.warn(`⚠️ [伺服器報錯] ${apiUrl} 狀態碼: ${response.status}`);
+                        }
+                    } catch (err) {
+                        console.warn(`❌ [網路錯誤] ${apiUrl} 無法連線`, err);
+                    }
+                }
                 
-                // Promise.any 會抓取最快成功的那個
-                responseText = await Promise.any(round1Promises);
-                console.log("🚀 第一階段競速勝利！");
-
-            } catch (round1Error) {
-                // 如果第一階段(8秒內)都失敗，代表主伺服器群都在塞車
-                console.warn('第一階段伺服器滿載，啟動備援節點...');
-                const loadingText = document.getElementById('loading-text');
-                if (loadingText) loadingText.textContent = `主節點擁塞，切換備援連線中...`;
-
-                try {
-                    // 🚀 第二階段：單一備援 (Fallback)
-                    // 向官方的分流備用主機單獨發出求救
-                    responseText = await fetchOverpass('https://lz4.overpass-api.de/api/interpreter', 8000);
-                    console.log("🛡️ 備援節點救援成功！");
-                } catch (round2Error) {
-                    throw new Error('所有伺服器皆無法連線');
+                if (!data) {
+                    throw new Error('所有公開地圖伺服器皆忙碌中。');
                 }
-            }
 
-            try {
-                let data = JSON.parse(responseText);
-                sessionStorage.setItem(cacheKey, responseText); // 寫入記憶體快取
+                // 將成功的資料存入快取
+                sessionStorage.setItem(cacheKey, JSON.stringify(data)); 
                 
                 parseOverpassData(data.elements);
                 displayPlaces(lat, lng);
@@ -364,11 +360,11 @@
                 setTimeout(() => { statusMsg.classList.add('hidden'); }, 2000);
 
             } catch (error) {
-                console.error('資料解析或全部請求失敗:', error);
+                console.error('API 請求失敗:', error);
                 restaurantListEl.innerHTML = `
                     <div class="text-center text-red-500 mt-10">
                         <i class="fa-solid fa-triangle-exclamation text-4xl mb-3"></i>
-                        <p class="font-bold">連線逾時或被阻擋</p>
+                        <p class="font-bold">連線逾時</p>
                         <p class="text-xs mt-1 text-gray-500">免費伺服器目前皆滿載，請您稍後再試。</p>
                         <button onclick="fetchRealData(${lat}, ${lng})" class="mt-4 px-6 py-2 bg-blue-100 text-blue-700 rounded-full font-bold hover:bg-blue-200 transition shadow-sm">
                             <i class="fa-solid fa-rotate-right mr-1"></i> 重試一次
