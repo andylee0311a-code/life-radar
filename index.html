@@ -5,22 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>生活通雷達 - 500公尺內的生活便利地圖</title>
     
-    <!-- 🚀 效能優化：預先建立圖磚與 API 伺服器的連線 (Preconnect) -->
     <link rel="preconnect" href="https://tile.openstreetmap.org" crossorigin>
     <link rel="preconnect" href="https://overpass-api.de" crossorigin>
     <link rel="preconnect" href="https://lz4.overpass-api.de" crossorigin>
-    <link rel="preconnect" href="https://overpass.kumi.systems" crossorigin>
+    <link rel="preconnect" href="https://overpass.openstreetmap.fr" crossorigin>
     <link rel="preconnect" href="https://unpkg.com" crossorigin>
     <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
 
-    <!-- 雷達圖示 -->
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📡</text></svg>">
     
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <!-- FontAwesome 圖示 -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
     <style>
@@ -33,7 +28,6 @@
             overflow: hidden; 
         }
 
-        /* --- 手機版切換核心邏輯 --- */
         @media (max-width: 767px) {
             #app-container.show-map #mobile-list-container { display: none; }
             #app-container.show-map #map-container { display: block; flex: 1; }
@@ -43,7 +37,6 @@
             #app-container.show-list #sidebar { flex: 1; max-height: 100vh; }
         }
 
-        /* --- 桌面版固定邏輯 --- */
         @media (min-width: 768px) {
             #sidebar { width: 380px; height: 100vh; max-height: 100vh; }
             #mobile-list-container { display: block !important; flex: 1; min-height: 0; }
@@ -141,7 +134,6 @@
                 </div>
             </div>
 
-            <!-- 列表區塊 -->
             <div id="mobile-list-container" class="overflow-y-auto bg-gray-50 pb-24 md:pb-4 transition-all duration-300">
                 <div id="restaurant-list" class="p-4">
                     <div class="text-center text-gray-400 mt-10">
@@ -156,7 +148,6 @@
             <div id="map" class="w-full h-full"></div>
         </div>
 
-        <!-- 手機版懸浮切換按鈕 (FAB) -->
         <div id="mobile-fab-container" class="md:hidden fixed bottom-6 left-1/2 transform -translate-x-1/2 z-[2000]">
             <button id="mobile-toggle-btn" class="bg-gray-900 text-white px-6 py-3 rounded-full shadow-[0_10px_25px_rgba(0,0,0,0.3)] font-bold flex items-center gap-2 border border-gray-700 active:scale-95 transition-transform">
                 <i id="mobile-toggle-icon" class="fa-solid fa-list"></i> 
@@ -166,7 +157,6 @@
 
     </div>
 
-    <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
     <script>
@@ -198,7 +188,6 @@
 
         function initMap() {
             map = L.map('map', { preferCanvas: true }).setView([DEFAULT_LAT, DEFAULT_LNG], 15);
-            
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                 attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
             }).addTo(map);
@@ -240,7 +229,6 @@
                 return;
             }
 
-            // 🚀 極限優化 1：關閉高精度 GPS，允許讀取快取。Wi-Fi/基地台定位只需 0.1 秒！
             navigator.geolocation.getCurrentPosition(
                 (position) => {
                     const lat = position.coords.latitude;
@@ -254,9 +242,9 @@
                     locateBtn.disabled = false;
                 },
                 { 
-                    enableHighAccuracy: false, // 關閉強制硬體 GPS 鎖定
+                    enableHighAccuracy: false,
                     timeout: 8000, 
-                    maximumAge: 60000 // 允許使用一分鐘內的手機舊位置
+                    maximumAge: 60000 
                 }
             );
         }
@@ -272,27 +260,22 @@
             isLoading = true;
             locateBtn.disabled = true;
             
-            // 🚀 極限優化 2：引入「空間記憶體快取 (Session Cache)」
-            // 根據經緯度的小數點後 3 位（約等於 111 公尺的誤差網格）來產生專屬的「地理鑰匙」
+            // 空間記憶體快取 (約 111 公尺網格)
             const cacheKey = `osm_cache_${lat.toFixed(3)}_${lng.toFixed(3)}`;
             const cachedData = sessionStorage.getItem(cacheKey);
 
             if (cachedData) {
-                console.log("⚡ 命中本地快取！0 毫秒極速載入");
                 statusMsg.textContent = '⚡ 快取載入成功！';
                 statusMsg.classList.remove('hidden');
-                
                 updateMapCenterAndCircle(lat, lng);
                 parseOverpassData(JSON.parse(cachedData).elements);
                 displayPlaces(lat, lng);
-                
                 setTimeout(() => { statusMsg.classList.add('hidden'); }, 2000);
                 isLoading = false;
                 locateBtn.disabled = false;
-                return; // 直接中斷後續的伺服器網路連線！
+                return; 
             }
 
-            // 如果沒有快取，才真正發送網路請求
             statusMsg.textContent = '🌐 正在向雲端索取最新資料...';
             statusMsg.classList.remove('hidden');
             
@@ -312,62 +295,67 @@
             const south = lat - latDelta; const north = lat + latDelta;
             const west = lng - lngDelta; const east = lng + lngDelta;
 
-            const query = `[out:json][timeout:8][bbox:${south},${west},${north},${east}];(nw["amenity"="restaurant"];nw["amenity"="cafe"];nw["amenity"="fast_food"];nw["amenity"="food_court"];nw["amenity"="parking"];nw["amenity"="fuel"];nw["shop"="convenience"];nw["amenity"="toilets"];);out center qt;`;
+            // 嚴格限制 Timeout 為 5 秒，告訴伺服器「太久就算了我不等了」
+            const query = `[out:json][timeout:5][bbox:${south},${west},${north},${east}];(nw["amenity"="restaurant"];nw["amenity"="cafe"];nw["amenity"="fast_food"];nw["amenity"="food_court"];nw["amenity"="parking"];nw["amenity"="fuel"];nw["shop"="convenience"];nw["amenity"="toilets"];);out center qt;`;
 
-            // 去除較不穩定的節點，保留亞洲最快與歐洲最穩的組合
+            // 【架構修正】：不使用並發攻擊，改用「紳士接力賽」
             const endpoints = [
-                'https://overpass.kumi.systems/api/interpreter', // 台灣/亞洲最快
-                'https://lz4.overpass-api.de/api/interpreter',   // 官方分流
-                'https://overpass-api.de/api/interpreter'
+                'https://overpass-api.de/api/interpreter',         // 官方主節點
+                'https://overpass.openstreetmap.fr/api/interpreter', // 法國節點 (通常最穩)
+                'https://lz4.overpass-api.de/api/interpreter'      // 官方備援
             ];
 
             let responseText = null;
-            const maxRetries = 2; 
 
             try {
-                for (let attempt = 1; attempt <= maxRetries; attempt++) {
-                    if (attempt > 1) {
-                        const loadingText = document.getElementById('loading-text');
-                        if(loadingText) loadingText.textContent = `伺服器連線中，進行第 ${attempt} 次優化重試...`;
+                // 依序嘗試伺服器
+                for (let i = 0; i < endpoints.length; i++) {
+                    const apiUrl = endpoints[i];
+                    const loadingText = document.getElementById('loading-text');
+                    
+                    if (i > 0 && loadingText) {
+                        loadingText.textContent = `切換備援伺服器 (${i + 1}/${endpoints.length})...`;
+                        console.log(`切換至備援伺服器: ${apiUrl}`);
                     }
 
-                    const fetchPromises = endpoints.map(async (apiUrl) => {
-                        const controller = new AbortController();
-                        const timeoutId = setTimeout(() => controller.abort(), 8000); 
-
-                        try {
-                            const requestUrl = `${apiUrl}?data=${encodeURIComponent(query)}`;
-                            const response = await fetch(requestUrl, { method: 'GET', signal: controller.signal });
-                            clearTimeout(timeoutId); 
-
-                            if (!response.ok) throw new Error(`Status: ${response.status}`);
-                            
-                            const text = await response.text();
-                            if (text.includes('<html') || text.includes('<!DOCTYPE')) throw new Error('HTML Error');
-                            
-                            return text; 
-                        } catch (err) {
-                            clearTimeout(timeoutId);
-                            throw err; 
-                        }
-                    });
+                    const controller = new AbortController();
+                    // 嚴格 4.5 秒斬斷連線！絕不死等
+                    const timeoutId = setTimeout(() => controller.abort(), 4500); 
 
                     try {
-                        responseText = await Promise.any(fetchPromises);
-                        break; 
-                    } catch (aggregateError) {
-                        if (attempt === maxRetries) throw new Error('伺服器過載');
-                        await new Promise(resolve => setTimeout(resolve, 1000));
+                        // 改回 POST 請求：這才是 Overpass 官方最標準且不會因網址過長出錯的方式
+                        const response = await fetch(apiUrl, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: 'data=' + encodeURIComponent(query),
+                            signal: controller.signal 
+                        });
+
+                        clearTimeout(timeoutId); 
+
+                        if (response.ok) {
+                            const text = await response.text();
+                            if (!text.includes('<html') && !text.includes('<!DOCTYPE')) {
+                                responseText = text;
+                                console.log(`🏆 成功從 ${apiUrl} 取得資料`);
+                                break; // 成功拿到資料，立刻跳出迴圈！
+                            }
+                        }
+                    } catch (err) {
+                        clearTimeout(timeoutId);
+                        console.warn(`${apiUrl} 無法回應或超時，自動跳過`);
+                        // 發生錯誤不拋出，繼續迴圈嘗試下一個伺服器
                     }
                 }
                 
+                if (!responseText) {
+                    throw new Error('所有公開地圖伺服器皆忙碌中。');
+                }
+
                 let data;
                 try {
                     data = JSON.parse(responseText);
-                    
-                    // 🚀 將成功的資料存入快取記憶體！下次搜尋同個區域就不用等了
-                    sessionStorage.setItem(cacheKey, responseText);
-                    
+                    sessionStorage.setItem(cacheKey, responseText); // 寫入快取
                 } catch (e) {
                     throw new Error('資料格式錯誤');
                 }
@@ -383,8 +371,8 @@
                 restaurantListEl.innerHTML = `
                     <div class="text-center text-red-500 mt-10">
                         <i class="fa-solid fa-triangle-exclamation text-4xl mb-3"></i>
-                        <p class="font-bold">開源資料庫目前連線壅塞</p>
-                        <p class="text-xs mt-1 text-gray-500">全世界太多人正在查詢地圖，請稍後再試。</p>
+                        <p class="font-bold">連線逾時</p>
+                        <p class="text-xs mt-1 text-gray-500">免費伺服器目前皆滿載，請您稍後再試。</p>
                         <button onclick="fetchRealData(${lat}, ${lng})" class="mt-4 px-6 py-2 bg-blue-100 text-blue-700 rounded-full font-bold hover:bg-blue-200 transition shadow-sm">
                             <i class="fa-solid fa-rotate-right mr-1"></i> 重試一次
                         </button>
